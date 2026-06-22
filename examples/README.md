@@ -16,6 +16,7 @@ cargo run --example 06_error_handling
 cargo run --example 07_analytics
 cargo run --example 08_query_streaming
 cargo run --example 09_query_streaming_arrow
+cargo run --features arrow --example 10_arrow_query_stream
 ```
 
 ## Example Files
@@ -29,6 +30,7 @@ cargo run --example 09_query_streaming_arrow
 7. **07_analytics.rs** - Complete analytics example with event tracking and aggregation
 8. **08_query_streaming.rs** - Streaming large query results in chunks without materializing the full output
 9. **09_query_streaming_arrow.rs** - Streaming large query results in chunks, decoding Arrow IPC bytes into human-readable tables
+10. **10_arrow_query_stream.rs** - Streaming large query results as Arrow `RecordBatch` values via the C Data Interface (requires `--features arrow`)
 
 ## Prerequisites
 
