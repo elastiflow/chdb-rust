@@ -17,6 +17,12 @@ cargo run --example 07_analytics
 cargo run --example 08_query_streaming
 cargo run --example 09_query_streaming_arrow
 cargo run --features arrow --example 10_arrow_query_stream
+cargo run --example 11_concurrent_reads_same_session
+cargo run --example 12_concurrent_reads_different_sessions
+cargo run --example 13_write_during_single_read
+cargo run --example 14_write_during_concurrent_reads
+cargo run --example 15_concurrent_writes
+cargo run --example 16_concurrent_writes_during_concurrent_reads
 ```
 
 ## Example Files
@@ -31,6 +37,14 @@ cargo run --features arrow --example 10_arrow_query_stream
 8. **08_query_streaming.rs** - Streaming large query results in chunks without materializing the full output
 9. **09_query_streaming_arrow.rs** - Streaming large query results in chunks, decoding Arrow IPC bytes into human-readable tables
 10. **10_arrow_query_stream.rs** - Streaming large query results as Arrow `RecordBatch` values via the C Data Interface (requires `--features arrow`)
+11. **11_concurrent_reads_same_session.rs** - Streaming reads from multiple threads sharing one session (`Arc<Mutex<Session>>`)
+12. **12_concurrent_reads_different_sessions.rs** - Concurrent streaming reads, each thread with its own session on the same database path
+13. **13_write_during_single_read.rs** - Insert via a second session while a streaming read is in progress
+14. **14_write_during_concurrent_reads.rs** - Insert while multiple streaming reads are active
+15. **15_concurrent_writes.rs** - Concurrent inserts from separate sessions
+16. **16_concurrent_writes_during_concurrent_reads.rs** - Concurrent reads and writes at the same time
+
+Examples 11–16 share helpers in `concurrency_common.rs`.
 
 ## Prerequisites
 
