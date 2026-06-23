@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>chDB Sessions &amp; Concurrency Reference</title>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --surface: #fff;
+      --text: #1a1a1a;
+      --muted: #555;
+      --border: #ddd;
+      --accent: #ffc53d;
+      --accent-dark: #e6a800;
+      --code-bg: #f4f4f5;
+      --link: #0969da;
+      --warn-bg: #fff8e6;
+      --warn-border: #f0c040;
+      --ok-bg: #eefbf0;
+      --ok-border: #6bcc7a;
+      --stale-bg: #fef2f2;
+      --stale-border: #f0a0a0;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--bg);
+    }
+
+    header {
+      background: linear-gradient(135deg, #1a1a1a 0%, #333 100%);
+      color: #fff;
+      padding: 2rem 1.5rem;
+      border-bottom: 4px solid var(--accent);
+    }
+
+    header h1 {
+      margin: 0 0 0.5rem;
+      font-size: 1.75rem;
+      font-weight: 700;
+    }
+
+    header p {
+      margin: 0;
+      opacity: 0.85;
+      max-width: 60rem;
+    }
+
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1.5rem;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    nav a {
+      color: var(--link);
+      text-decoration: none;
+      margin-right: 1.25rem;
+      font-size: 0.9rem;
+    }
+
+    nav a:hover { text-decoration: underline; }
+
+    main {
+      max-width: 52rem;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 4rem;
+    }
+
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    h2 {
+      margin: 0 0 1rem;
+      font-size: 1.35rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--accent);
+    }
+
+    h3 {
+      margin: 1.5rem 0 0.75rem;
+      font-size: 1.1rem;
+    }
+
+    h4 {
+      margin: 1rem 0 0.5rem;
+      font-size: 1rem;
+      color: var(--muted);
+    }
+
+    p, ul, ol { margin: 0 0 1rem; }
+
+    ul, ol { padding-left: 1.5rem; }
+
+    a { color: var(--link); }
+
+    code {
+      font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, monospace;
+      font-size: 0.88em;
+      background: var(--code-bg);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+    }
+
+    pre {
+      background: #1e1e1e;
+      color: #e8e8e8;
+      padding: 1rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      margin: 0 0 1rem;
+    }
+
+    pre code {
+      background: none;
+      padding: 0;
+      color: inherit;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+      margin: 0 0 1rem;
+    }
+
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.6rem 0.75rem;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--code-bg);
+      font-weight: 600;
+    }
+
+    .callout {
+      border-radius: 6px;
+      padding: 1rem 1.15rem;
+      margin: 0 0 1rem;
+      border-left: 4px solid;
+    }
+
+    .callout-warn {
+      background: var(--warn-bg);
+      border-color: var(--warn-border);
+    }
+
+    .callout-ok {
+      background: var(--ok-bg);
+      border-color: var(--ok-border);
+    }
+
+    .callout-stale {
+      background: var(--stale-bg);
+      border-color: var(--stale-border);
+    }
+
+    .callout strong { display: block; margin-bottom: 0.35rem; }
+
+    .tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      padding: 0.15em 0.5em;
+      border-radius: 4px;
+      margin-right: 0.35rem;
+    }
+
+    .tag-current { background: #d4edda; color: #155724; }
+    .tag-stale { background: #f8d7da; color: #721c24; }
+    .tag-mixed { background: #fff3cd; color: #856404; }
+
+    .decision-tree {
+      font-family: ui-monospace, monospace;
+      font-size: 0.85rem;
+      background: var(--code-bg);
+      padding: 1rem;
+      border-radius: 6px;
+      white-space: pre;
+      overflow-x: auto;
+      line-height: 1.5;
+    }
+
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+      padding: 2rem 1.5rem;
+      border-top: 1px solid var(--border);
+    }
+
+    @media (max-width: 600px) {
+      header h1 { font-size: 1.4rem; }
+      table { font-size: 0.82rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>chDB Sessions &amp; Concurrency Reference</h1>
+  <p>
+    Consolidated notes on session lifecycle best practices and concurrent read/write behavior,
+    gathered from chDB documentation, binding READMEs, C API headers, and chdb-core tests.
+    Relevant to <strong>chdb-rust</strong> (libchdb v26.5.0) and the broader chDB ecosystem.
+  </p>
+</header>
+
+<nav>
+  <a href="#summary">Summary</a>
+  <a href="#sessions">Session lifecycle</a>
+  <a href="#decision-tree">Decision tree</a>
+  <a href="#concurrency">Concurrency</a>
+  <a href="#streaming">Streaming</a>
+  <a href="#rust">chdb-rust notes</a>
+  <a href="#sources">Sources</a>
+  <a href="#stale">Stale docs</a>
+</nav>
+
+<main>
+
+<section id="summary">
+  <h2>Executive summary</h2>
+
+  <div class="callout callout-ok">
+    <strong>Current model (post multi-connection, PR #405, Dec 2025)</strong>
+    One embedded engine per process, bound to <strong>one data path</strong>. Multiple native
+    connections/sessions to that same path can be open and execute queries concurrently.
+    Opening a <em>different</em> path while the engine is active returns an error.
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Workload</th>
+        <th>Advertised approach</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>One-off / file queries</td>
+        <td>Stateless query API (<code>chdb.query</code>, Rust <code>execute</code>)</td>
+      </tr>
+      <tr>
+        <td>Stateful / repeated analytics</td>
+        <td>One long-lived, file-backed session; load once, query many times</td>
+      </tr>
+      <tr>
+        <td>Concurrent server-like workloads</td>
+        <td>Pool of connections/sessions to the <strong>same path</strong> (Go: <code>SetMaxOpenConns</code>)</td>
+      </tr>
+      <tr>
+        <td>Multi-threaded, one session</td>
+        <td>Engine: thread-safe queries; Ruby: share one <code>Database</code>; Python DB-API: one connection per thread</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-warn">
+    <strong>Documentation is inconsistent</strong>
+    Python ReadTheDocs and the libchdb C header still say “one connection/session per process.”
+    chdb-go README, chdb-core concurrency tests, and observed behavior in chdb-rust examples
+    contradict that for <em>same-path</em> multi-connection use.
+  </div>
+</section>
+
+<section id="sessions">
+  <h2>Session lifecycle best practices</h2>
+
+  <h3>What a session is</h3>
+  <p>
+    A chDB session is a <strong>native connection + data path</strong>. Sessions preserve state
+    across queries: tables, inserts, temp objects, and settings. The engine is embedded in your
+    process — this is not a client/server database with external connection limits.
+  </p>
+
+  <h3>1. One-off queries — no long-lived session</h3>
+  <p>Use the stateless API when you do not need persistent tables:</p>
+  <ul>
+    <li>Python: <code>chdb.query(...)</code></li>
+    <li>Go: <code>chdb.Query(...)</code></li>
+    <li>Rust: <code>execute(...)</code></li>
+  </ul>
+  <p>
+    Best for querying files, URLs, or simple in-memory analytics. Do not open a session unless
+    you need state.
+  </p>
+
+  <h3>2. Stateful / repeated work — one long-lived session</h3>
+  <p>
+    When you create tables, insert data, or run many queries against the same embedded database,
+    docs consistently recommend <strong>reusing one session</strong> (especially file-backed)
+    rather than reopening per query.
+  </p>
+
+  <pre><code># Python — persistent session for repeated analytics
+from chdb import session as chs
+
+sess = chs.Session("/path/to/analytics.chdb")
+sess.query("CREATE TABLE users AS SELECT * FROM file('users.parquet', 'Parquet')")
+result1 = sess.query("SELECT COUNT(*) FROM users WHERE age > 25")
+result2 = sess.query("SELECT AVG(age) FROM users GROUP BY department")
+sess.close()  # or use a context manager</code></pre>
+
+  <p><strong>Storage choices:</strong></p>
+  <ul>
+    <li><code>Session()</code> / no path — temp directory, auto-cleaned when session closes</li>
+    <li><code>Session("/path/to/db")</code> — persistent across restarts</li>
+  </ul>
+
+  <h3>3. Concurrent workloads — connection pool, same path</h3>
+  <p>
+    From the <a href="https://github.com/chdb-io/chdb-go/blob/main/README.md">chdb-go README</a>
+    (most explicit current guidance):
+  </p>
+
+  <pre><code>db, err := sql.Open("chdb", "session=/path/to/data")
+db.SetMaxOpenConns(8)  // each pooled conn = independent native connection, same path</code></pre>
+
+  <p>
+    <a href="https://github.com/chdb-io/chdb-go/blob/main/chdb.md">chdb-go NewSession</a> docs:
+    multiple sessions can be open if they share the same data path; each owns an independent
+    native connection and can run queries in parallel.
+  </p>
+
+  <h3>4. Multi-threaded sharing of one session</h3>
+  <table>
+    <thead>
+      <tr><th>Binding</th><th>Guidance</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Ruby</td>
+        <td>
+          Share one <code>ChDB::Database</code> across threads; read/write on that instance are
+          thread-safe. <code>new</code>/<code>open</code>/<code>close</code> are <em>not</em>
+          thread-safe — synchronize lifecycle calls.
+        </td>
+      </tr>
+      <tr>
+        <td>Python DB-API</td>
+        <td><code>threadsafety = 1</code> — share module, not connections; one connection per thread.</td>
+      </tr>
+      <tr>
+        <td>chdb-core tests</td>
+        <td>
+          <code>test_sessions_are_thread_safe</code>: one shared session, 3 threads concurrent
+          INSERT — no errors, 9 rows inserted.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>What not to do</h3>
+  <table>
+    <thead>
+      <tr><th>Anti-pattern</th><th>Why</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Open a second <em>different</em> path without closing the first</td>
+        <td>Runtime error: engine already initialized with another path</td>
+      </tr>
+      <tr>
+        <td>Leave streaming queries open</td>
+        <td>May block other queries; always close or use context managers</td>
+      </tr>
+      <tr>
+        <td>New temp session for every repeated query on same data</td>
+        <td>Troubleshooting/perf docs recommend persistent session + tables instead</td>
+      </tr>
+      <tr>
+        <td>Pool of different database paths in one process</td>
+        <td>Not supported — one engine/path per process</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Resource management (all bindings)</h3>
+  <ul>
+    <li>Close sessions/connections on shutdown</li>
+    <li>Use context managers / <code>defer</code> / RAII where available</li>
+    <li>Always close streaming results on early termination</li>
+    <li>For large datasets: file-backed sessions + streaming queries</li>
+  </ul>
+</section>
+
+<section id="decision-tree">
+  <h2>Session lifecycle decision tree</h2>
+  <div class="decision-tree">Need persistent tables / repeated queries on same data?
+├─ No  → stateless query API (execute / chdb.query)
+└─ Yes → file-backed Session, kept for app lifetime
+         │
+         Need concurrent queries?
+         ├─ No  → one Session, reuse it
+         └─ Yes → pool of Sessions/connections, same path
+                  (Go: sql.Open + SetMaxOpenConns)
+                  (Rust: multiple SessionBuilder::build() on same path)</div>
+
+  <h3>Per-interaction sessions?</h3>
+  <p>
+    <strong>Default answer: no.</strong> Reuse a long-lived session for stateful/repeated work.
+    For concurrent apps, spinning up sessions per worker/request is fine <em>if</em> they share
+    the same path and are managed as a pool — not opened and torn down on every single query
+    when avoidable.
+  </p>
+</section>
+
+<section id="concurrency">
+  <h2>Concurrency documentation</h2>
+
+  <h3>Best current sources <span class="tag tag-current">Current</span></h3>
+  <table>
+    <thead>
+      <tr><th>Source</th><th>What it states</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><a href="https://github.com/chdb-io/chdb-go/blob/main/README.md">chdb-go README → Concurrency</a></td>
+        <td>
+          One engine per process, one data path. Multiple connections to that path execute
+          queries concurrently. Use <code>database/sql</code> pool with <code>SetMaxOpenConns</code>.
+          Different path while connections open → error.
+        </td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/chdb-io/chdb-go/blob/main/lowApi.md">chdb-go lowApi.md</a></td>
+        <td>Same one-path / multi-connection / concurrent queries model on <code>NewConnection</code>.</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/chdb-io/chdb-go/blob/main/chdb.md">chdb-go chdb.md (NewSession)</a></td>
+        <td>Multiple sessions same path OK; each is independent native connection; parallel queries.</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/chdb-io/chdb/issues/390">chdb#390</a> + <a href="https://github.com/chdb-io/chdb/pull/405">PR #405</a></td>
+        <td>Feature: “support multi connections” — merged Dec 2025.</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/chdb-io/chdb-core/blob/main/tests/test_session_concurrency.py">test_session_concurrency.py</a></td>
+        <td>Behavioral spec: multi-session same path, shared-session thread safety, path consistency.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Behavioral expectations (from tests)</h3>
+  <table>
+    <thead>
+      <tr><th>Scenario</th><th>Expected behavior</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Multiple sessions, same path</td>
+        <td>Both can read; write from one visible to the other on subsequent query</td>
+      </tr>
+      <tr>
+        <td>One shared session, multiple threads</td>
+        <td>Concurrent INSERTs succeed (<code>test_sessions_are_thread_safe</code>)</td>
+      </tr>
+      <tr>
+        <td>Each thread, own session, same path</td>
+        <td>Concurrent inserts succeed; final row count correct</td>
+      </tr>
+      <tr>
+        <td>Different path while engine active</td>
+        <td><code>RuntimeError</code> — path already initialized</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>C API header (libchdb v26.5.0) <span class="tag tag-mixed">Mixed</span></h3>
+  <p>From <code>chdb.h</code> shipped with libchdb (what chdb-rust links):</p>
+
+  <h4>On <code>chdb_connect</code> — likely stale</h4>
+  <pre><code>/**
+ * Creates a new chDB connection.
+ * Only one active connection is allowed per process.
+ * Creating a new connection with different path requires closing existing connection.
+ */</code></pre>
+
+  <h4>On <code>chdb_query</code> / <code>chdb_stream_query</code> — still relevant</h4>
+  <pre><code>/**
+ * Executes a query on the given connection.
+ * Thread-safe function that handles query execution in a separate thread.
+ */</code></pre>
+
+  <p>
+    The “one connection per process” comment conflicts with chdb-go docs and chdb-core tests.
+    Treat query-level thread safety as accurate; treat the one-connection limit as outdated
+    (now: one <em>path</em> per process, multiple connections to that path).
+  </p>
+
+  <h3>Scenario matrix (chdb-rust examples)</h3>
+  <table>
+    <thead>
+      <tr><th>Scenario</th><th>Feasible?</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Same session, concurrent streaming reads</td>
+        <td>Partial</td>
+        <td>Engine may allow concurrent queries on one connection, but Rust API serializes: <code>Session</code> not <code>Sync</code>, <code>QueryStream</code> borrows connection</td>
+      </tr>
+      <tr>
+        <td>Different sessions, same path, concurrent reads</td>
+        <td>Yes</td>
+        <td>Wall time shows overlap (example 12)</td>
+      </tr>
+      <tr>
+        <td>Write during active stream (cross-session)</td>
+        <td>Yes</td>
+        <td>Requires second session; single session cannot interleave stream + write in safe Rust</td>
+      </tr>
+      <tr>
+        <td>Concurrent writes, same path</td>
+        <td>Yes</td>
+        <td>Disjoint inserts succeed; final counts match (examples 15–16)</td>
+      </tr>
+      <tr>
+        <td>Reads + writes together</td>
+        <td>Yes</td>
+        <td>Example 16: 3 readers + 3 writers via barrier</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Read-during-write visibility</h3>
+  <div class="callout callout-warn">
+    <strong>Not explicitly documented</strong>
+    chDB does not document MVCC/snapshot isolation for concurrent streaming reads. An active
+    stream may not observe rows inserted mid-stream (consistent with ClickHouse query snapshot
+    semantics), even though inserts succeed and final <code>COUNT()</code> reflects new rows.
+    See <code>test_streaming_query.py</code> (<code>test_multi_thread_streaming_query</code>) for
+    stress-test behavior, not formal isolation guarantees.
+  </div>
+</section>
+
+<section id="streaming">
+  <h2>Streaming-specific guidance</h2>
+  <p>From <a href="https://github.com/chdb-io/chdb-core/blob/main/docs/streaming.rst">chdb-core/docs/streaming.rst</a>:</p>
+  <ul>
+    <li>Use context managers or explicit <code>close()</code> on streaming results</li>
+    <li>Call <code>close()</code> on early termination — do not rely on GC alone</li>
+    <li>Arrow streaming is typically faster than CSV for large numerical datasets</li>
+  </ul>
+
+  <div class="callout callout-warn">
+    <strong>Warning from streaming docs</strong>
+    “Streaming queries may block other queries if not properly closed.”
+    Implies same-connection interaction risk; use separate sessions for overlapping work when possible.
+  </div>
+
+  <p>
+    Concurrent streaming + inserts are exercised in
+    <a href="https://github.com/chdb-io/chdb-core/blob/main/tests/test_streaming_query.py">test_streaming_query.py</a>
+    with separate sessions per worker thread.
+  </p>
+</section>
+
+<section id="rust">
+  <h2>chdb-rust-specific notes</h2>
+  <ul>
+    <li>Uses <code>SessionBuilder</code> for persistent state; <code>execute</code> for stateless queries</li>
+    <li><code>Session</code> and <code>Connection</code> are <code>Send</code> but <strong>not <code>Sync</code></strong> — share across threads via <code>Mutex</code> (or one session per thread)</li>
+    <li><code>QueryStream</code> borrows the session connection for its lifetime — only one active stream per session in safe Rust</li>
+    <li>Crate docs recommend synchronizing concurrent access to the same session</li>
+    <li>Test suite note: run with <code>--test-threads=1</code> due to connection resource contention in some environments</li>
+    <li>Concurrency examples 11–16 in <code>examples/</code> demonstrate same-session vs multi-session patterns</li>
+  </ul>
+
+  <pre><code>// Long-lived app session (production-shaped)
+let session = SessionBuilder::new()
+    .with_data_path("/path/to/analytics")
+    .with_auto_cleanup(false)
+    .build()?;
+
+// Ephemeral scratch session (demo / test shaped)
+let session = SessionBuilder::new()
+    .with_data_path(temp_dir)
+    .with_auto_cleanup(true)
+    .build()?;</code></pre>
+</section>
+
+<section id="sources">
+  <h2>Primary source links</h2>
+
+  <h3>Session lifecycle</h3>
+  <ul>
+    <li><a href="https://chdb.readthedocs.io/en/latest/session.html">Python session docs (ReadTheDocs)</a></li>
+    <li><a href="https://github.com/chdb-io/chdb-core/blob/main/docs/troubleshooting.rst">chdb-core troubleshooting.rst</a> — persistent sessions for repeated queries</li>
+    <li><a href="https://github.com/ClickHouse/clickhouse-docs/blob/main/docs/chdb/install/python.md">ClickHouse clickhouse-docs — Python install</a></li>
+    <li><a href="https://github.com/chdb-io/chdb/releases/tag/v3.0.0">chDB v3.0.0 release notes</a> — “reuse one connection”</li>
+    <li><a href="https://github.com/chdb-io/chdb-ruby/blob/main/README.md">chdb-ruby README — Thread Safety</a></li>
+    <li><a href="https://github.com/chdb-io/chdb-go/blob/main/README.md">chdb-go README</a></li>
+    <li><a href="https://github.com/chdb-io/chdb-go/blob/main/chdb.md">chdb-go chdb.md</a></li>
+    <li><a href="https://github.com/chdb-io/chdb-go/blob/main/lowApi.md">chdb-go lowApi.md</a></li>
+  </ul>
+
+  <h3>Concurrency</h3>
+  <ul>
+    <li><a href="https://github.com/chdb-io/chdb/issues/390">chdb#390 — parallel queries / multi-connection</a></li>
+    <li><a href="https://github.com/chdb-io/chdb/pull/405">chdb PR #405 — support multi connections</a></li>
+    <li><a href="https://github.com/chdb-io/chdb-core/blob/main/tests/test_session_concurrency.py">test_session_concurrency.py</a></li>
+    <li><a href="https://github.com/chdb-io/chdb-core/blob/main/tests/test_streaming_query.py">test_streaming_query.py</a></li>
+    <li><a href="https://github.com/chdb-io/chdb-core/blob/main/docs/streaming.rst">streaming.rst</a></li>
+    <li><a href="https://chdb.readthedocs.io/en/latest/dbapi.html">Python DB-API docs</a> — threadsafety = 1</li>
+  </ul>
+</section>
+
+<section id="stale">
+  <h2>Stale or conflicting documentation</h2>
+
+  <table>
+    <thead>
+      <tr><th>Claim</th><th>Where</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>“Only one session per process”</td>
+        <td>Python ReadTheDocs session.html, troubleshooting</td>
+        <td><span class="tag tag-stale">Stale</span> pre–PR #405</td>
+      </tr>
+      <tr>
+        <td>“Only one active connection per process”</td>
+        <td>libchdb <code>chdb.h</code> (<code>chdb_connect</code> comment)</td>
+        <td><span class="tag tag-stale">Likely stale</span></td>
+      </tr>
+      <tr>
+        <td>“Only one active database connection per process”</td>
+        <td>chdb-ruby README</td>
+        <td><span class="tag tag-stale">Likely stale</span> for same-path multi-connection</td>
+      </tr>
+      <tr>
+        <td>“Reuse one connection throughout your project”</td>
+        <td>v3.0.0 release notes</td>
+        <td><span class="tag tag-current">Still valid</span> for single-threaded stateful apps</td>
+      </tr>
+      <tr>
+        <td>“Use connection pool for parallelism”</td>
+        <td>chdb-go README</td>
+        <td><span class="tag tag-current">Current</span></td>
+      </tr>
+      <tr>
+        <td>“Persistent sessions for repeated queries”</td>
+        <td>troubleshooting.rst FAQ</td>
+        <td><span class="tag tag-current">Current</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-stale">
+    <strong>When in doubt</strong>
+    Prefer chdb-go README + chdb-core concurrency tests over ReadTheDocs “one session” pages
+    and the <code>chdb_connect</code> header comment until upstream docs are updated.
+  </div>
+</section>
+
+</main>
+
+<footer>
+  Generated for the chdb-rust project &middot;
+  libchdb v26.5.0 &middot;
+  Last updated June 2026
+</footer>
+
+</body>
+</html>

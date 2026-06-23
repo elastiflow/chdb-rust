@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Review: Concurrency Examples 11–16</title>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --surface: #fff;
+      --text: #1a1a1a;
+      --muted: #555;
+      --border: #ddd;
+      --accent: #0969da;
+      --accent-light: #dbeafe;
+      --code-bg: #f4f4f5;
+      --link: #0969da;
+      --ok-bg: #eefbf0;
+      --ok-border: #6bcc7a;
+      --warn-bg: #fff8e6;
+      --warn-border: #f0c040;
+      --gap-bg: #fef2f2;
+      --gap-border: #f0a0a0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--bg);
+    }
+    header {
+      background: linear-gradient(135deg, #1a1a1a 0%, #333 100%);
+      color: #fff;
+      padding: 2rem 1.5rem;
+      border-bottom: 4px solid var(--accent-light);
+    }
+    header h1 { margin: 0 0 0.5rem; font-size: 1.75rem; }
+    header p { margin: 0; opacity: 0.85; max-width: 60rem; }
+    main { max-width: 52rem; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    h2 {
+      margin: 0 0 1rem;
+      font-size: 1.35rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--accent-light);
+    }
+    h3 { margin: 1.5rem 0 0.75rem; font-size: 1.1rem; }
+    h4 { margin: 1rem 0 0.5rem; font-size: 1rem; color: var(--muted); }
+    p, ul, ol { margin: 0 0 1rem; }
+    ul, ol { padding-left: 1.5rem; }
+    a { color: var(--link); }
+    code {
+      font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+      font-size: 0.88em;
+      background: var(--code-bg);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+      margin: 0 0 1rem;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.6rem 0.75rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: var(--code-bg); }
+    .callout {
+      border-radius: 6px;
+      padding: 1rem 1.25rem;
+      margin: 0 0 1rem;
+      border-left: 4px solid;
+    }
+    .callout-ok { background: var(--ok-bg); border-color: var(--ok-border); }
+    .callout-warn { background: var(--warn-bg); border-color: var(--warn-border); }
+    .callout-gap { background: var(--gap-bg); border-color: var(--gap-border); }
+    .tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.15em 0.5em;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .tag-strong { background: var(--ok-bg); color: #1a6b2e; }
+    .tag-partial { background: var(--warn-bg); color: #8a6600; }
+    .tag-weak { background: var(--gap-bg); color: #991b1b; }
+    nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1.5rem;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    nav a { margin-right: 1.25rem; font-size: 0.9rem; text-decoration: none; }
+    nav a:hover { text-decoration: underline; }
+    .refs { font-size: 0.92rem; }
+    .refs li { margin-bottom: 0.4rem; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Review: Concurrency Examples 11–16</h1>
+  <p>
+    Effectiveness review of chdb-rust streaming concurrency examples, with recommendations
+    for clearer verification that concurrent access works as intended — especially that
+    writes do not pollute in-flight reads.
+  </p>
+</header>
+
+<nav>
+  <a href="#summary">Summary</a>
+  <a href="#matrix">Verification matrix</a>
+  <a href="#ex11">Example 11</a>
+  <a href="#ex12">Example 12</a>
+  <a href="#ex13">Example 13</a>
+  <a href="#ex14">Example 14</a>
+  <a href="#ex15">Example 15</a>
+  <a href="#ex16">Example 16</a>
+  <a href="#cross">Cross-cutting</a>
+  <a href="#refs">References</a>
+</nav>
+
+<main>
+
+<section id="summary">
+  <h2>Executive summary</h2>
+  <p>
+    Examples 11–16 form a coherent progression from serialized same-session reads through
+    fully overlapping reads and writes. All examples correctly use
+    <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/concurrency_common.rs"><code>execute_stream</code></a>
+    rather than materializing full results, and shared setup in
+    <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/concurrency_common.rs"><code>concurrency_common.rs</code></a>
+    keeps them consistent.
+  </p>
+  <p>
+    When run locally (macOS arm64, libchdb v26.5.0), every example completed without error.
+    Readers consistently observed 300,000 rows even when 1,000-row inserts completed mid-stream,
+    and final row counts matched expectations after concurrent writes — behavior consistent with
+    query-time snapshot semantics, as noted in
+    <a href="chdb-sessions-and-concurrency.html">the concurrency reference doc</a>.
+  </p>
+
+  <div class="callout callout-warn">
+    <strong>Main gap:</strong> Examples 13, 14, and 16 report read row counts but do not
+    <em>assert</em> them. A regression that let writes pollute active streams could pass
+    silently in 13 and 14; example 16 would still pass if only write counts were checked.
+    Row-count-only checks also miss partial pollution (e.g. a few inserted IDs appearing mid-stream).
+  </div>
+
+  <p>
+    The highest-value improvements are: (1) assert snapshot isolation where reads overlap writes,
+    (2) spot-check streamed data (min/max <code>n</code>, or a sentinel row), and (3) fix example 12’s
+    overlap heuristic so parallelism is demonstrated reliably.
+  </p>
+</section>
+
+<section id="matrix">
+  <h2>Verification matrix</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Example</th>
+        <th>What it demonstrates</th>
+        <th>Streaming</th>
+        <th>Row-count check</th>
+        <th>Data-content check</th>
+        <th>Timing / overlap signal</th>
+        <th>Overall</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><a href="#ex11">11</a></td>
+        <td>Same session, mutex-serialized reads</td>
+        <td>Yes</td>
+        <td><code>expect_row_count</code> ✓</td>
+        <td>None</td>
+        <td>Wall time printed; not compared to sum</td>
+        <td><span class="tag tag-partial">Partial</span></td>
+      </tr>
+      <tr>
+        <td><a href="#ex12">12</a></td>
+        <td>Parallel reads, separate sessions</td>
+        <td>Yes</td>
+        <td><code>expect_row_count</code> ✓</td>
+        <td>None</td>
+        <td>Heuristic often fails to fire</td>
+        <td><span class="tag tag-partial">Partial</span></td>
+      </tr>
+      <tr>
+        <td><a href="#ex13">13</a></td>
+        <td>Write during one active stream</td>
+        <td>Yes</td>
+        <td>Printed only; no assert</td>
+        <td>None</td>
+        <td>First-chunk signal ✓</td>
+        <td><span class="tag tag-weak">Weak</span></td>
+      </tr>
+      <tr>
+        <td><a href="#ex14">14</a></td>
+        <td>Write during multiple streams</td>
+        <td>Yes</td>
+        <td>Printed only; no assert</td>
+        <td>None</td>
+        <td>All-readers-started gate ✓</td>
+        <td><span class="tag tag-weak">Weak</span></td>
+      </tr>
+      <tr>
+        <td><a href="#ex15">15</a></td>
+        <td>Concurrent disjoint writes</td>
+        <td>N/A (writes)</td>
+        <td>Asserted ✓</td>
+        <td>None</td>
+        <td>Wall time printed</td>
+        <td><span class="tag tag-strong">Strong</span></td>
+      </tr>
+      <tr>
+        <td><a href="#ex16">16</a></td>
+        <td>Reads + writes via barrier</td>
+        <td>Yes</td>
+        <td>Writes asserted; reads not</td>
+        <td>None</td>
+        <td>Barrier ✓</td>
+        <td><span class="tag tag-partial">Partial</span></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="ex11">
+  <h2>Example 11 — concurrent reads, same session</h2>
+  <p>
+    Source:
+    <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/11_concurrent_reads_same_session.rs"><code>11_concurrent_reads_same_session.rs</code></a>
+  </p>
+
+  <h3>What works</h3>
+  <ul>
+    <li>Correctly documents why <code>Arc&lt;Mutex&lt;Session&gt;&gt;</code> is required
+        (<a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/src/session.rs"><code>Session</code> is <code>Send</code> but not <code>Sync</code></a>,
+        <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/src/query_stream.rs"><code>QueryStream</code> borrows the connection</a>).</li>
+    <li>Each thread performs a full streaming read via
+        <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/concurrency_common.rs#L124-L141"><code>spawn_streaming_read</code></a>.</li>
+    <li>
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/concurrency_common.rs#L143-L150"><code>expect_row_count</code></a>
+      fails the example if any reader returns ≠ 300,000 rows.
+    </li>
+  </ul>
+
+  <h3>Observed output</h3>
+  <p>
+    Per-thread read time ≈ 12–14 ms; wall time ≈ 40 ms (≈ sum of three serialized reads).
+    This confirms mutex serialization, but the example never states that comparison explicitly.
+  </p>
+
+  <h3>Recommendations</h3>
+  <ul>
+    <li>
+      Print and compare <code>wall_elapsed</code> to <code>sum(outcomes.elapsed)</code> with a
+      message like “wall ≈ sum → reads ran one-at-a-time on this session.” This is the
+      intentional negative control for example 12.
+    </li>
+    <li>
+      Optional: in the first chunk, parse one JSONEachRow line and assert <code>{"n":0}</code>
+      (pattern from
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/08_query_streaming.rs"><code>08_query_streaming.rs</code></a>).
+    </li>
+  </ul>
+</section>
+
+<section id="ex12">
+  <h2>Example 12 — concurrent reads, different sessions</h2>
+  <p>
+    Source:
+    <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/12_concurrent_reads_different_sessions.rs"><code>12_concurrent_reads_different_sessions.rs</code></a>
+  </p>
+
+  <h3>What works</h3>
+  <ul>
+    <li>Each thread owns a session on the same path — the recommended concurrent pattern.</li>
+    <li>Row counts validated with <code>expect_row_count</code>.</li>
+    <li>Cleanup of temp data path on success and failure.</li>
+  </ul>
+
+  <div class="callout callout-gap">
+    <strong>Bug in overlap heuristic:</strong> The check at
+    <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/12_concurrent_reads_different_sessions.rs#L52-L55">lines 52–55</a>
+    compares wall time to the <em>average</em> per-thread elapsed time. On a local run,
+    wall ≈ 27 ms and average ≈ 26 ms, so the “indicating overlap” message never printed —
+    even though per-thread read time was ≈ 13 ms and three reads clearly overlapped.
+  </div>
+
+  <h3>Recommendations</h3>
+  <ul>
+    <li>
+      Replace the heuristic with:
+      <code>wall_elapsed &lt; sum_elapsed * 0.8</code> (or simply
+      <code>wall_elapsed &lt; max_elapsed * 1.5</code>).
+    </li>
+    <li>Print all three numbers: wall, sum, max — makes the proof visible at a glance.</li>
+    <li>Optionally assert <code>wall_elapsed &lt; sum_elapsed / 2</code> for three readers as a hard check.</li>
+  </ul>
+</section>
+
+<section id="ex13">
+  <h2>Example 13 — write during a single streaming read</h2>
+  <p>
+    Source:
+    <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/13_write_during_single_read.rs"><code>13_write_during_single_read.rs</code></a>
+  </p>
+
+  <h3>What works</h3>
+  <ul>
+    <li>Good coordination: writer waits for reader’s first chunk before inserting
+        (<a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/13_write_during_single_read.rs#L46-L48">lines 46–48</a>).</li>
+    <li>Separate sessions for reader and writer — required because a single session cannot interleave stream + write in safe Rust.</li>
+    <li>Reports <code>streamed_rows</code>, <code>final_count</code>, and write outcome.</li>
+  </ul>
+
+  <h3>Observed output</h3>
+  <p>
+    Reader streamed 300,000 rows; writer inserted 1,000; final count 301,000.
+    The reader did <em>not</em> see the new rows — the key isolation property — but the example
+    only prints a hedged note (“may or may not have seen new rows”) and returns <code>Ok(())</code>.
+  </p>
+
+  <div class="callout callout-gap">
+    <strong>Missing assertion:</strong> This is the most important read/write isolation example,
+    yet it never verifies <code>streamed_rows == ROW_COUNT</code> or
+    <code>final_count == ROW_COUNT + WRITE_BATCH_SIZE</code>.
+  </div>
+
+  <h3>Recommendations</h3>
+  <ul>
+    <li>
+      Assert <code>streamed_rows == ROW_COUNT</code> and
+      <code>final_count == ROW_COUNT + WRITE_BATCH_SIZE</code>; fail with a clear message if not.
+    </li>
+    <li>
+      Track <code>max_n</code> while draining chunks (parse JSONEachRow <code>"n":</code> values).
+      Assert <code>max_n &lt; ROW_COUNT</code> (inserts start at <code>ROW_COUNT + 1</code> per
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/13_write_during_single_read.rs#L67"><code>insert_start</code></a>).
+      This proves writes did not appear in streamed data, not just that the row counter stayed at 300k.
+    </li>
+    <li>
+      Log row count after first chunk vs at stream end — if they differ, pollution occurred mid-stream.
+    </li>
+    <li>Remove unused <code>started</code> variable in the writer thread (compiler warning).</li>
+  </ul>
+</section>
+
+<section id="ex14">
+  <h2>Example 14 — write during concurrent streaming reads</h2>
+  <p>
+    Source:
+    <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/14_write_during_concurrent_reads.rs"><code>14_write_during_concurrent_reads.rs</code></a>
+  </p>
+
+  <h3>What works</h3>
+  <ul>
+    <li>Waits for all <code>CONCURRENT_READERS</code> to signal first chunk before writing.</li>
+    <li>Three independent streaming readers, one writer — realistic overlap scenario.</li>
+  </ul>
+
+  <h3>Observed output</h3>
+  <p>
+    All three readers streamed 300,000 rows; writer inserted 1,000; final count 301,000.
+    Example exits <code>Ok(())</code> unconditionally.
+  </p>
+
+  <h3>Recommendations</h3>
+  <ul>
+    <li>Apply <code>expect_row_count</code> to each reader (same as examples 11/12).</li>
+    <li>Assert <code>final_count == ROW_COUNT + WRITE_BATCH_SIZE</code>.</li>
+    <li>
+      Optionally report whether readers disagreed on row count (would indicate inconsistent snapshots).
+    </li>
+    <li>
+      Per-reader <code>max_n</code> tracking — all should stay below <code>ROW_COUNT</code>.
+    </li>
+  </ul>
+</section>
+
+<section id="ex15">
+  <h2>Example 15 — concurrent writes</h2>
+  <p>
+    Source:
+    <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/15_concurrent_writes.rs"><code>15_concurrent_writes.rs</code></a>
+  </p>
+
+  <h3>What works</h3>
+  <ul>
+    <li>Disjoint insert ranges prevent primary-key collisions
+        (<a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/15_concurrent_writes.rs#L35"><code>start = ROW_COUNT + 1 + i * WRITE_BATCH_SIZE</code></a>).</li>
+    <li>Hard assertion on final count
+        (<a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/15_concurrent_writes.rs#L73-L77">lines 73–77</a>).</li>
+    <li>Error propagation from any failed writer.</li>
+  </ul>
+
+  <h3>Recommendations</h3>
+  <ul>
+    <li>
+      Post-write spot check:
+      <code>SELECT min(n), max(n) FROM num WHERE n &gt; ROW_COUNT</code> — confirms all
+      three batches landed in expected ranges.
+    </li>
+    <li>
+      Print <code>sum(writer elapsed)</code> vs wall time to show write parallelism (mirror of example 12).
+    </li>
+  </ul>
+</section>
+
+<section id="ex16">
+  <h2>Example 16 — concurrent reads and writes</h2>
+  <p>
+    Source:
+    <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/16_concurrent_writes_during_concurrent_reads.rs"><code>16_concurrent_writes_during_concurrent_reads.rs</code></a>
+  </p>
+
+  <h3>What works</h3>
+  <ul>
+    <li>
+      <a href="https://doc.rust-lang.org/std/sync/struct.Barrier.html"><code>Barrier</code></a>
+      ensures all 6 workers start together — strongest overlap guarantee in the set.
+    </li>
+    <li>Write side fully verified (final count assertion).</li>
+    <li>Combines patterns from 12, 14, and 15 into one stress scenario.</li>
+  </ul>
+
+  <div class="callout callout-gap">
+    <strong>Read side unverified:</strong> All three readers returned 300,000 rows in a local run,
+    but the example never calls <code>expect_row_count</code>. It would pass even if every reader
+    saw 303,000 rows (write pollution) as long as the post-hoc <code>COUNT()</code> matched.
+  </div>
+
+  <h3>Recommendations</h3>
+  <ul>
+    <li>Add <code>expect_row_count</code> for every read outcome — highest priority fix here.</li>
+    <li>Assert all readers agree on row count.</li>
+    <li>Consider per-reader <code>max_n</code> during stream as in example 13.</li>
+  </ul>
+</section>
+
+<section id="cross">
+  <h2>Cross-cutting recommendations</h2>
+
+  <h3>1. Shared helpers in <code>concurrency_common.rs</code></h3>
+  <p>
+    Add to
+    <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/concurrency_common.rs"><code>concurrency_common.rs</code></a>:
+  </p>
+  <ul>
+    <li><code>max_n_in_chunk(data: &amp;str) -&gt; Option&lt;u64&gt;</code> — parse JSONEachRow lines.</li>
+    <li><code>expect_snapshot_read(rows: u64, max_n: Option&lt;u64&gt;, label: &amp;str)</code> — assert rows == ROW_COUNT and max_n &lt; ROW_COUNT.</li>
+    <li><code>print_timing_summary(wall, outcomes, mode)</code> — “serialized” vs “parallel” interpretation.</li>
+    <li><code>expect_final_count(session, expected)</code> — unify post-run verification.</li>
+  </ul>
+
+  <h3>2. Sentinel-row technique (strongest content proof)</h3>
+  <p>
+    Before starting concurrent reads, insert one row with a distinctive value
+    (e.g. <code>n = 999_999_999</code>) via a separate session. Active streams querying
+    <code>ORDER BY n</code> over the baseline range would never encounter it; a polluted read
+    might. Lighter than scanning all chunk JSON, and very readable in output.
+  </p>
+
+  <h3>3. Chunk-boundary logging</h3>
+  <p>
+    When the write completes, log each reader’s cumulative row count at that moment
+    (requires shared atomic counters updated per chunk). Proves the write happened
+    <em>during</em> streaming, not before or after.
+  </p>
+
+  <h3>4. Automated smoke tests</h3>
+  <p>
+    No test harness currently runs examples 11–16 (see
+    <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/tests/examples.rs"><code>tests/examples.rs</code></a>).
+    A <code>#[test]</code> that runs each example binary and checks exit code 0 would catch regressions.
+    Note the existing guidance to use
+    <code>RUST_TEST_THREADS=1</code> due to libchdb contention.
+  </p>
+
+  <h3>5. Smaller table for CI, same semantics</h3>
+  <p>
+    <code>ROW_COUNT = 300_000</code> makes examples slow in CI. A <code>#[cfg(test)]</code> or
+    env-var override (e.g. <code>CHDB_EXAMPLE_ROW_COUNT=10_000</code>) would preserve semantics
+    with faster feedback, without changing the default demo experience.
+  </p>
+
+  <h3>6. Document expected outcomes in module docs</h3>
+  <p>
+    Each example’s <code>//!</code> header should state expected results explicitly, e.g.:
+    “Reader sees exactly 300,000 rows; final count is 301,000; max observed <code>n</code> is 299,999.”
+    Aligns with
+    <a href="chdb-sessions-and-concurrency.html#streaming">streaming guidance</a>
+    in the concurrency reference.
+  </p>
+
+  <h3>7. Other angles not yet covered</h3>
+  <ul>
+    <li>
+      <strong>Same-session write during stream (expected failure / block):</strong> Demonstrate that
+      attempting an insert on the session that owns an active <code>QueryStream</code> fails or blocks
+      — reinforces why examples 13/14 use a second session.
+    </li>
+    <li>
+      <strong>Early stream drop:</strong> Per
+      <a href="https://github.com/chdb-io/chdb-core/blob/main/docs/streaming.rst">chdb-core streaming docs</a>,
+      unclosed streams can block other queries. An example that drops a stream mid-read then writes
+      would complement the happy path.
+    </li>
+    <li>
+      <strong>Arrow streaming variant:</strong> Repeat example 13 with
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/09_query_streaming_arrow.rs"><code>09_query_streaming_arrow.rs</code></a>
+      / <code>10_arrow_query_stream.rs</code> to confirm isolation holds across output formats.
+    </li>
+    <li>
+      <strong>Negative control:</strong> A reader that starts <em>after</em> the write should see
+      <code>ROW_COUNT + WRITE_BATCH_SIZE</code> rows — proves the insert actually landed and
+      contrasts with snapshot reads.
+    </li>
+  </ul>
+</section>
+
+<section id="refs">
+  <h2>References</h2>
+  <ol class="refs">
+    <li>
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/11_concurrent_reads_same_session.rs">Example 11 — concurrent reads, same session</a>
+    </li>
+    <li>
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/12_concurrent_reads_different_sessions.rs">Example 12 — concurrent reads, different sessions</a>
+    </li>
+    <li>
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/13_write_during_single_read.rs">Example 13 — write during single read</a>
+    </li>
+    <li>
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/14_write_during_concurrent_reads.rs">Example 14 — write during concurrent reads</a>
+    </li>
+    <li>
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/15_concurrent_writes.rs">Example 15 — concurrent writes</a>
+    </li>
+    <li>
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/16_concurrent_writes_during_concurrent_reads.rs">Example 16 — concurrent reads and writes</a>
+    </li>
+    <li>
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/concurrency_common.rs">Shared helpers — <code>concurrency_common.rs</code></a>
+    </li>
+    <li>
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/README.md">Examples README</a>
+    </li>
+    <li>
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/examples/08_query_streaming.rs">Example 08 — chunk content inspection pattern</a>
+    </li>
+    <li>
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/src/session.rs">chdb-rust <code>Session</code> thread-safety docs</a>
+    </li>
+    <li>
+      <a href="https://github.com/elastiflow/chdb-rust/blob/x-test-confirm-streaming-concurrency/src/query_stream.rs">chdb-rust <code>QueryStream</code> docs</a>
+    </li>
+    <li>
+      <a href="chdb-sessions-and-concurrency.html">chDB sessions &amp; concurrency reference (local doc)</a>
+    </li>
+    <li>
+      <a href="https://github.com/chdb-io/chdb-core/blob/main/docs/streaming.rst">chdb-core streaming documentation</a>
+    </li>
+    <li>
+      <a href="https://github.com/chdb-io/chdb-core/blob/main/tests/test_streaming_query.py">chdb-core <code>test_streaming_query.py</code> (multi-thread streaming stress tests)</a>
+    </li>
+    <li>
+      <a href="https://doc.rust-lang.org/std/sync/struct.Barrier.html">Rust std — <code>Barrier</code></a>
+    </li>
+  </ol>
+</section>
+
+</main>
+</body>
+</html>
