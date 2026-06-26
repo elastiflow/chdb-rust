@@ -13,6 +13,8 @@ keywords = ["clickhouse", "chdb", "database", "embedded", "analytics"]
 [dependencies]
 thiserror = "1"
 arrow = { version = "55", optional = true, default-features = false, features = ["ffi"] }
+otap-df-config = { git = "https://github.com/open-telemetry/otel-arrow", rev = "7b75b942f643225a2e0ea98f2e1374885cf71678" }
+otap-df-pdata = { git = "https://github.com/open-telemetry/otel-arrow", rev = "7b75b942f643225a2e0ea98f2e1374885cf71678" }
 
 [features]
 # By default, we link dynamically.
@@ -33,6 +35,10 @@ tempdir = "0.3.7"
 
 [[example]]
 name = "10_arrow_query_stream"
+required-features = ["arrow"]
+
+[[example]]
+name = "11_otap_ddl_arrow"
 required-features = ["arrow"]
 
 [package.metadata.docs.rs]
