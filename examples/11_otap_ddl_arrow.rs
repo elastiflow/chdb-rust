@@ -65,6 +65,48 @@ ENGINE = ReplacingMergeTree()
 ORDER BY ();
 
 CREATE TABLE telemetry.logs (
+    resource_schema_url               String
+    resource_dropped_attributes_count Int32
+
+    scope_name                        String
+    scope_version                     String
+    scope_dropped_attributes_count    Int32
+
+    schema_url                        String
+
+    time_unix_nano                    UInt64
+    observed_time_unix_nano           UInt64
+
+    trace_id                          String
+    span_id                           String
+
+    severity_number                   Nullable(Int32)
+    severity_text                     String
+    event_name                        String
+
+    body_type    Enum8('Empty' = 0, 'Str' = 1, 'Int' = 2, 'Double' = 3, 'Bool' = 4, 'Map' = 5, 'Slice' = 6, 'Bytes' = 7),
+    body_str     String,
+    body_int     Nullable(Int64),
+    body_double  Nullable(Float64),
+    body_bool    Nullable(Bool),
+    body_bytes   String,
+    body_ser     String,
+
+    dropped_attributes_count Int32
+    flags                    UInt32
+
+    attributes Nested(
+        key     String,
+        type    Enum8('Empty' = 0, 'Str' = 1, 'Int' = 2, 'Double' = 3, 'Bool' = 4, 'Map' = 5, 'Slice' = 6, 'Bytes' = 7),
+        str     String,
+        int     Nullable(Int64),
+        double  Nullable(Float64),
+        bool    Nullable(Bool),
+        bytes   String,
+        ser     String,
+    ),
+
+    resource_id String MATERIALIZED xxh3(tuple(resource_schema_url, resource_attributes))
 )
 ENGINE = MergeTree()
 ORDER BY ();
