@@ -8,6 +8,10 @@
 //! ```bash
 //! cargo run --features arrow --example 11_otap_ddl_arrow
 //! ```
+//!
+//! For randomized OTAP test inputs, see `common::otap_payload_gen`.
+
+mod common;
 
 use arrow::record_batch::RecordBatch;
 use arrow::util::pretty::pretty_format_batches;

@@ -15,6 +15,7 @@ thiserror = "1"
 arrow = { version = "55", optional = true, default-features = false, features = ["ffi"] }
 otap-df-config = { git = "https://github.com/open-telemetry/otel-arrow", rev = "7b75b942f643225a2e0ea98f2e1374885cf71678" }
 otap-df-pdata = { git = "https://github.com/open-telemetry/otel-arrow", rev = "7b75b942f643225a2e0ea98f2e1374885cf71678" }
+rand = "0.9"
 
 [features]
 # By default, we link dynamically.
