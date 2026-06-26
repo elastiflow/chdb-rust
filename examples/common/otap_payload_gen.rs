@@ -211,11 +211,6 @@ impl OtapPayloadIter {
     pub const fn items_per_payload(&self) -> usize {
         self.batch_size
     }
-
-    /// Primary records not yet yielded.
-    pub const fn remaining_items(&self) -> usize {
-        self.remaining
-    }
 }
 
 impl ExactSizeIterator for OtapPayloadIter {

@@ -22,8 +22,49 @@ const DATABASE_DDL: &str = "CREATE DATABASE otap_demo; USE otap_demo";
 
 /// Replace with your table layout experiments.
 const CREATE_TABLE_DDL: &str = r#"
-CREATE TABLE hello (
-    message String
+CREATE TABLE telemetry.resources (
+    schema_url               String
+    dropped_attributes_count Int32
+
+    attributes Nested(
+        key     String,
+        type    Enum8('Empty' = 0, 'Str' = 1, 'Int' = 2, 'Double' = 3, 'Bool' = 4, 'Map' = 5, 'Slice' = 6, 'Bytes' = 7),
+        str     String,
+        int     Nullable(Int64),
+        double  Nullable(Float64),
+        bool    Nullable(Bool),
+        bytes   String,
+        ser     String,
+    )),
+
+    resource_id String MATERIALIZED xxh3(tuple(resource_schema_url, resource_attributes))
+)
+ENGINE = ReplacingMergeTree()
+ORDER BY ();
+
+CREATE TABLE telemetry.scopes (
+    name                     String
+    version                  String
+    schema_url               String
+    dropped_attributes_count Int32
+
+    attributes Nested(
+        key     String,
+        type    Enum8('Empty' = 0, 'Str' = 1, 'Int' = 2, 'Double' = 3, 'Bool' = 4, 'Map' = 5, 'Slice' = 6, 'Bytes' = 7),
+        str     String,
+        int     Nullable(Int64),
+        double  Nullable(Float64),
+        bool    Nullable(Bool),
+        bytes   String,
+        ser     String,
+    )),
+
+    resource_id String MATERIALIZED xxh3(tuple(resource_schema_url, resource_attributes))
+)
+ENGINE = ReplacingMergeTree()
+ORDER BY ();
+
+CREATE TABLE telemetry.logs (
 )
 ENGINE = MergeTree()
 ORDER BY ();
