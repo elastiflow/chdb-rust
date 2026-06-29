@@ -32,7 +32,12 @@ tar = "0.4"
 
 [dev-dependencies]
 arrow = { version = "55", default-features = false, features = ["ffi", "ipc", "prettyprint"] }
+arrow-otap = { package = "arrow", version = "57", default-features = false, features = ["ffi", "prettyprint"] }
 tempdir = "0.3.7"
+
+[[test]]
+name = "arrow_mount"
+required-features = ["arrow"]
 
 [[example]]
 name = "10_arrow_query_stream"

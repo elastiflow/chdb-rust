@@ -1,174 +1,155 @@
-//! Example: table layout experiments with Arrow streaming → OTAP conversion
+//! Example: load OTAP log payloads into ClickHouse via a mounted Arrow batch.
 //!
-//! Scaffold for trying different DDL layouts and converting the resulting
-//! [`arrow::record_batch::RecordBatch`] streams into OTAP payloads.
+//! This example:
+//! 1. Creates a small `logs` table with four scalar columns
+//! 2. Generates randomized OTAP log payloads
+//! 3. Mounts the OTAP logs batch with `chdb_arrow_array_scan`
+//!    (via [`Connection::register_arrow_array`]) as `arrowstream('stg_logs')`
+//! 4. Copies four fields into the table with `INSERT … SELECT`
 //!
-//! Edit the DDL constants below, then run:
+//! Run with:
 //!
 //! ```bash
 //! cargo run --features arrow --example 11_otap_ddl_arrow
 //! ```
-//!
-//! For randomized OTAP test inputs, see `common::otap_payload_gen`.
 
 mod common;
 
-use arrow::record_batch::RecordBatch;
-use arrow::util::pretty::pretty_format_batches;
-use chdb_rust::arg::Arg;
-use chdb_rust::session::SessionBuilder;
+use chdb_rust::connection::Connection;
+use chdb_rust::format::OutputFormat;
+use common::otap_chdb_loader::{insert_otap_logs, mount_otap_logs};
+use common::otap_payload_gen::{self, StreamConfig};
+use otap_df_pdata::OtapArrowRecords;
 
-const DATABASE_DDL: &str = "CREATE DATABASE otap_demo; USE otap_demo";
-
-/// Replace with your table layout experiments.
-const CREATE_TABLE_DDL: &str = r#"
-CREATE TABLE telemetry.resources (
-    schema_url               String
-    dropped_attributes_count Int32
-
+/*
+CREATE TABLE IF NOT EXISTS resources (
+    schema_url String,
+    dropped_attributes_count Int32,
     attributes Nested(
-        key     String,
-        type    Enum8('Empty' = 0, 'Str' = 1, 'Int' = 2, 'Double' = 3, 'Bool' = 4, 'Map' = 5, 'Slice' = 6, 'Bytes' = 7),
-        str     String,
-        int     Nullable(Int64),
-        double  Nullable(Float64),
-        bool    Nullable(Bool),
-        bytes   String,
-        ser     String,
-    )),
-
-    resource_id String MATERIALIZED xxh3(tuple(resource_schema_url, resource_attributes))
-)
-ENGINE = ReplacingMergeTree()
-ORDER BY ();
-
-CREATE TABLE telemetry.scopes (
-    name                     String
-    version                  String
-    schema_url               String
-    dropped_attributes_count Int32
-
-    attributes Nested(
-        key     String,
-        type    Enum8('Empty' = 0, 'Str' = 1, 'Int' = 2, 'Double' = 3, 'Bool' = 4, 'Map' = 5, 'Slice' = 6, 'Bytes' = 7),
-        str     String,
-        int     Nullable(Int64),
-        double  Nullable(Float64),
-        bool    Nullable(Bool),
-        bytes   String,
-        ser     String,
-    )),
-
-    resource_id String MATERIALIZED xxh3(tuple(resource_schema_url, resource_attributes))
-)
-ENGINE = ReplacingMergeTree()
-ORDER BY ();
-
-CREATE TABLE telemetry.logs (
-    resource_schema_url               String
-    resource_dropped_attributes_count Int32
-
-    scope_name                        String
-    scope_version                     String
-    scope_dropped_attributes_count    Int32
-
-    schema_url                        String
-
-    time_unix_nano                    UInt64
-    observed_time_unix_nano           UInt64
-
-    trace_id                          String
-    span_id                           String
-
-    severity_number                   Nullable(Int32)
-    severity_text                     String
-    event_name                        String
-
-    body_type    Enum8('Empty' = 0, 'Str' = 1, 'Int' = 2, 'Double' = 3, 'Bool' = 4, 'Map' = 5, 'Slice' = 6, 'Bytes' = 7),
-    body_str     String,
-    body_int     Nullable(Int64),
-    body_double  Nullable(Float64),
-    body_bool    Nullable(Bool),
-    body_bytes   String,
-    body_ser     String,
-
-    dropped_attributes_count Int32
-    flags                    UInt32
-
-    attributes Nested(
-        key     String,
-        type    Enum8('Empty' = 0, 'Str' = 1, 'Int' = 2, 'Double' = 3, 'Bool' = 4, 'Map' = 5, 'Slice' = 6, 'Bytes' = 7),
-        str     String,
-        int     Nullable(Int64),
-        double  Nullable(Float64),
-        bool    Nullable(Bool),
-        bytes   String,
-        ser     String,
+        key String,
+        type Enum8('Empty' = 0, 'Str' = 1, 'Int' = 2, 'Double' = 3, 'Bool' = 4, 'Map' = 5, 'Slice' = 6, 'Bytes' = 7),
+        str String,
+        int Nullable(Int64),
+        double Nullable(Float64),
+        bool Nullable(Bool),
+        bytes String,
+        ser String
     ),
+    resource_id String MATERIALIZED xxh3(tuple(schema_url, attributes))
+)
+ENGINE = ReplacingMergeTree()
+ORDER BY resource_id;
 
-    resource_id String MATERIALIZED xxh3(tuple(resource_schema_url, resource_attributes))
+CREATE TABLE IF NOT EXISTS scopes (
+    name String,
+    version String,
+    schema_url String,
+    dropped_attributes_count Int32,
+    attributes Nested(
+        key String,
+        type Enum8('Empty' = 0, 'Str' = 1, 'Int' = 2, 'Double' = 3, 'Bool' = 4, 'Map' = 5, 'Slice' = 6, 'Bytes' = 7),
+        str String,
+        int Nullable(Int64),
+        double Nullable(Float64),
+        bool Nullable(Bool),
+        bytes String,
+        ser String
+    ),
+    scope_id String MATERIALIZED xxh3(tuple(name, version, schema_url, attributes))
+)
+ENGINE = ReplacingMergeTree()
+ORDER BY scope_id;
+
+CREATE TABLE IF NOT EXISTS logs (
+    resource_schema_url String,
+    resource_dropped_attributes_count Int32,
+    scope_name String,
+    scope_version String,
+    scope_dropped_attributes_count Int32,
+    schema_url String,
+    time_unix_nano UInt64,
+    observed_time_unix_nano UInt64,
+    trace_id String,
+    span_id String,
+    severity_number Nullable(Int32),
+    severity_text String,
+    event_name String,
+    body_type Enum8('Empty' = 0, 'Str' = 1, 'Int' = 2, 'Double' = 3, 'Bool' = 4, 'Map' = 5, 'Slice' = 6, 'Bytes' = 7),
+    body_str String,
+    body_int Nullable(Int64),
+    body_double Nullable(Float64),
+    body_bool Nullable(Bool),
+    body_bytes String,
+    body_ser String,
+    dropped_attributes_count Int32,
+    flags UInt32,
+    attributes Nested(
+        key String,
+        type Enum8('Empty' = 0, 'Str' = 1, 'Int' = 2, 'Double' = 3, 'Bool' = 4, 'Map' = 5, 'Slice' = 6, 'Bytes' = 7),
+        str String,
+        int Nullable(Int64),
+        double Nullable(Float64),
+        bool Nullable(Bool),
+        bytes String,
+        ser String
+    ),
+    // ? this seems wrong
+    // resource_id String MATERIALIZED xxh3(tuple(resource_schema_url, scope_name, scope_version))
 )
 ENGINE = MergeTree()
-ORDER BY ();
-"#;
+ORDER BY (time_unix_nano, scope_name);
+*/
 
-/// Optional seed data so the stream has rows to inspect.
-const SEED_DATA_DDL: &str = r#"
-INSERT INTO hello VALUES ('world')
-"#;
-
-const QUERY: &str = r#"
-SELECT * FROM hello
+const CREATE_TABLE_DDL: &str = r#"
+CREATE TABLE logs (
+    time_unix_nano DateTime64(9),
+    scope_name String,
+    severity_text String,
+    body_str String
+)
+ENGINE = MergeTree()
+ORDER BY time_unix_nano
 "#;
 
 const PREVIEW_ROWS: usize = 5;
 
-fn record_batch_to_otap(_batch: &RecordBatch) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: convert record batches to OTAP payloads
-    Ok(())
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp = std::env::temp_dir().join("chdb-otap-ddl-example");
-    let session = SessionBuilder::new()
-        .with_data_path(tmp)
-        .with_auto_cleanup(true)
-        .build()?;
+    let conn = Connection::open_in_memory()?;
+    conn.query(CREATE_TABLE_DDL, OutputFormat::TabSeparated)?;
 
-    session.execute(DATABASE_DDL, Some(&[Arg::MultiQuery]))?;
-    session.execute(CREATE_TABLE_DDL, None)?;
-    session.execute(SEED_DATA_DDL, None)?;
+    let config = StreamConfig::new(10).batch_size(10).seed(42);
+    let payload = otap_payload_gen::logs(config)
+        .next()
+        .expect("generator yields at least one payload");
 
-    let stream = session.execute_stream_arrow(QUERY)?;
+    let mut records: OtapArrowRecords = payload.try_into()?;
+    records.decode_transport_optimized_ids()?;
 
-    println!("Streaming query results (Arrow C Data Interface):\n");
-    let mut batch_count = 0;
-    let mut total_rows = 0usize;
+    println!(
+        "Loading OTAP payload with {} log records…",
+        records.num_items()
+    );
 
-    for batch in stream {
-        let batch = batch?;
-        let row_count = batch.num_rows();
-        total_rows += row_count;
+    let mounted = mount_otap_logs(&conn, &records)?;
+    println!("Mounted OTAP logs batch as arrowstream('stg_logs')");
 
-        record_batch_to_otap(&batch)?;
+    insert_otap_logs(&conn, &mounted)?;
+    println!("Copied staged data into ClickHouse table");
+    mounted.unmount(&conn)?;
 
-        let preview = if row_count > PREVIEW_ROWS {
-            batch.slice(0, PREVIEW_ROWS)
-        } else {
-            batch
-        };
+    let result = conn.query("SELECT count() AS rows FROM logs", OutputFormat::TabSeparated)?;
+    println!("logs: {}", result.data_utf8_lossy().trim());
 
-        println!("batch {batch_count}: {row_count} rows");
-        println!("{}", pretty_format_batches(&[preview])?);
-        if row_count > PREVIEW_ROWS {
-            println!(
-                "  ... ({remaining} more rows)",
-                remaining = row_count - PREVIEW_ROWS
-            );
-        }
-        batch_count += 1;
-    }
+    let preview = conn.query(
+        &format!(
+            "SELECT time_unix_nano, scope_name, severity_text, body_str
+             FROM logs
+             ORDER BY time_unix_nano
+             LIMIT {PREVIEW_ROWS}"
+        ),
+        OutputFormat::TabSeparated,
+    )?;
+    println!("\nSample log rows:\n{}", preview.data_utf8_lossy());
 
-    println!("\nReceived {batch_count} batches, {total_rows} rows total.");
     Ok(())
 }

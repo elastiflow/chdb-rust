@@ -403,6 +403,26 @@ impl Session {
     ) -> Result<crate::arrow_query_stream::ArrowQueryStream<'a>> {
         self.conn.query_stream_arrow(query)
     }
+
+    /// Register an Arrow record batch as a queryable `arrowstream('name')` table function.
+    ///
+    /// Available when the crate is built with the `arrow` feature.
+    #[cfg(feature = "arrow")]
+    pub fn register_arrow_array(
+        &self,
+        table_name: &str,
+        arrow_schema: &crate::arrow_stream::ArrowSchema,
+        arrow_array: &crate::arrow_stream::ArrowArray,
+    ) -> Result<()> {
+        self.conn.register_arrow_array(table_name, arrow_schema, arrow_array)
+    }
+
+    /// Unregister a table previously registered with [`register_arrow_array`](Self::register_arrow_array)
+    /// or [`Connection::register_arrow_stream`](crate::connection::Connection::register_arrow_stream).
+    #[cfg(feature = "arrow")]
+    pub fn unregister_arrow_table(&self, table_name: &str) -> Result<()> {
+        self.conn.unregister_arrow_table(table_name)
+    }
 }
 
 impl Drop for Session {
