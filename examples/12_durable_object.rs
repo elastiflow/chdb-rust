@@ -7,7 +7,7 @@
 ///
 /// Run it with the feature on:
 ///
-///     cargo run --features durable --example 09_durable_object
+///     cargo run --features durable --example 12_durable_object
 use chdb_rust::durable::{Namespace, OpenOptions};
 use chdb_rust::format::OutputFormat;
 

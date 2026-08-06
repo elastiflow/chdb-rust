@@ -44,7 +44,7 @@ flate2 = "1.0"
 tar = "0.4"
 
 [dev-dependencies]
-arrow = { version = "59", features = ["ffi", "prettyprint", "ipc"] }
+arrow = { version = "59", features = ["ffi", "prettyprint", "ipc_compression"] }
 tempdir = "0.3.7"
 tempfile = "3"
 
@@ -53,10 +53,14 @@ name = "08_arrow_insert"
 required-features = ["arrow"]
 
 [[example]]
-name = "08_query_streaming"
+name = "09_query_streaming"
 
 [[example]]
-name = "09_query_streaming_arrow"
+name = "10_query_streaming_arrow"
+required-features = ["arrow"]
+
+[[example]]
+name = "11_arrow_query_stream"
 required-features = ["arrow"]
 
 [[test]]
@@ -73,10 +77,6 @@ required-features = ["arrow"]
 
 [[test]]
 name = "arrow_stream_roundtrip"
-required-features = ["arrow"]
-
-[[example]]
-name = "10_arrow_query_stream"
 required-features = ["arrow"]
 
 # Its own runner: each case has to be its own process so that the exit code, the
@@ -99,7 +99,7 @@ name = "durable_s3"
 required-features = ["durable-s3"]
 
 [[example]]
-name = "09_durable_object"
+name = "12_durable_object"
 required-features = ["durable"]
 
 [package.metadata.chdb]
