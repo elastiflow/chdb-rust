@@ -323,9 +323,11 @@ mod arrow_stream {
     #[test]
     fn stream_arrow_missing_param_returns_substitution_error() {
         let conn = Connection::open_in_memory().expect("connection");
-        let result =
-            conn.query_stream_arrow_with_params("SELECT {x:UInt64} AS v", QueryParams::new());
-        assert!(matches!(result, Err(Error::QueryError(msg)) if msg.contains("Substitution")));
+        let mut stream = conn
+            .query_stream_arrow_with_params("SELECT {x:UInt64} AS v", QueryParams::new())
+            .expect("stream start succeeds; bind error arrives on fetch");
+        let err = stream.next_batch().unwrap_err();
+        assert!(matches!(err, Error::QueryError(msg) if msg.contains("Substitution")));
     }
 
     #[test]

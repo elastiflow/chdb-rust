@@ -16,7 +16,7 @@ use arrow::record_batch::RecordBatch;
 use crate::bindings;
 use crate::connection::Connection;
 use crate::error::{Error, Result};
-use crate::query_param::QueryParam;
+use crate::query_param::{EncodedParams, QueryParam};
 use crate::query_result::QueryResult;
 
 enum ArrowQueryStreamConnection<'a> {
@@ -137,8 +137,31 @@ impl<'a> ArrowQueryStream<'a> {
         V: Into<QueryParam>,
         I: IntoIterator<Item = (K, V)>,
     {
-        let _ = (conn, sql, params);
-        todo!("ArrowQueryStream::start_query_with_params")
+        let query_cstr = CString::new(sql)?;
+        let encoded = EncodedParams::encode(params)?;
+
+        let stream_ptr = unsafe {
+            bindings::chdb_stream_query_arrow_with_params(
+                conn,
+                query_cstr.as_ptr(),
+                std::ptr::null(),
+                encoded.names_ptr(),
+                encoded.values_ptr(),
+                encoded.len(),
+            )
+        };
+
+        if stream_ptr.is_null() {
+            return Err(Error::NoResult);
+        }
+
+        let probe = ManuallyDrop::new(QueryResult::new(stream_ptr));
+        if let Err(e) = probe.check_error_ref() {
+            let _ = ManuallyDrop::into_inner(probe);
+            return Err(e);
+        }
+
+        Ok(stream_ptr)
     }
 
     fn conn_handle(&self) -> bindings::chdb_connection {
