@@ -6,6 +6,7 @@
 //! annotation in the SQL text.
 
 use std::borrow::Cow;
+use std::ffi::{c_char, CString};
 
 use crate::error::Result;
 
@@ -32,6 +33,40 @@ use crate::error::Result;
 #[derive(Debug, Default, Clone)]
 pub struct QueryParams {
     pairs: Vec<(String, QueryParam)>,
+}
+
+impl QueryParams {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn bind(mut self, name: impl AsRef<str>, value: impl Into<QueryParam>) -> Self {
+        self.pairs.push((name.as_ref().to_owned(), value.into()));
+        self
+    }
+}
+
+impl IntoIterator for QueryParams {
+    type Item = (String, QueryParam);
+    type IntoIter = std::vec::IntoIter<(String, QueryParam)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.pairs.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a QueryParams {
+    type Item = (&'a str, &'a QueryParam);
+    type IntoIter = std::iter::Map<
+        std::slice::Iter<'a, (String, QueryParam)>,
+        fn(&'a (String, QueryParam)) -> (&'a str, &'a QueryParam),
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.pairs
+            .iter()
+            .map(|(name, value)| (name.as_str(), value))
+    }
 }
 
 /// A value bound to a `{name:Type}` placeholder in a parameterized query.
@@ -71,37 +106,65 @@ impl QueryParam {
     }
 }
 
-impl QueryParams {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn bind(mut self, name: impl AsRef<str>, value: impl Into<QueryParam>) -> Self {
-        self.pairs.push((name.as_ref().to_owned(), value.into()));
-        self
-    }
+/// NUL-terminated name/value C strings ready for `chdb_query_with_params`.
+///
+/// Pointers returned by [`Self::names_ptr`] / [`Self::values_ptr`] are valid only
+/// while this struct remains alive.
+pub(crate) struct EncodedParams {
+    _name_cstrs: Vec<CString>,
+    _value_cstrs: Vec<CString>,
+    name_ptrs: Vec<*const c_char>,
+    value_ptrs: Vec<*const c_char>,
 }
 
-impl IntoIterator for QueryParams {
-    type Item = (String, QueryParam);
-    type IntoIter = std::vec::IntoIter<(String, QueryParam)>;
+impl EncodedParams {
+    pub(crate) fn encode<K, V, I>(params: I) -> Result<Self>
+    where
+        K: AsRef<str>,
+        V: Into<QueryParam>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        let mut name_cstrs = Vec::new();
+        let mut value_cstrs = Vec::new();
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.pairs.into_iter()
+        for (name, value) in params {
+            let param = value.into();
+            let encoded = param.encode_nul_terminated()?;
+            name_cstrs.push(CString::new(name.as_ref())?);
+            value_cstrs.push(CString::new(encoded.as_ref())?);
+        }
+
+        let name_ptrs = name_cstrs.iter().map(|s| s.as_ptr()).collect();
+        let value_ptrs = value_cstrs.iter().map(|s| s.as_ptr()).collect();
+
+        Ok(Self {
+            _name_cstrs: name_cstrs,
+            _value_cstrs: value_cstrs,
+            name_ptrs,
+            value_ptrs,
+        })
     }
-}
 
-impl<'a> IntoIterator for &'a QueryParams {
-    type Item = (&'a str, &'a QueryParam);
-    type IntoIter = std::iter::Map<
-        std::slice::Iter<'a, (String, QueryParam)>,
-        fn(&'a (String, QueryParam)) -> (&'a str, &'a QueryParam),
-    >;
+    pub(crate) fn len(&self) -> usize {
+        self.name_ptrs.len()
+    }
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.pairs
-            .iter()
-            .map(|(name, value)| (name.as_str(), value))
+    /// Pointer to the parallel name C-string array, or null when empty.
+    pub(crate) fn names_ptr(&self) -> *const *const c_char {
+        if self.name_ptrs.is_empty() {
+            std::ptr::null()
+        } else {
+            self.name_ptrs.as_ptr()
+        }
+    }
+
+    /// Pointer to the parallel value C-string array, or null when empty.
+    pub(crate) fn values_ptr(&self) -> *const *const c_char {
+        if self.value_ptrs.is_empty() {
+            std::ptr::null()
+        } else {
+            self.value_ptrs.as_ptr()
+        }
     }
 }
 
@@ -266,5 +329,43 @@ mod tests {
         assert_eq!(collected[0].1, QueryParam::UInt64(5));
         assert_eq!(collected[1].0, "label");
         assert_eq!(collected[1].1, QueryParam::Text("ok".into()));
+    }
+
+    #[test]
+    fn encoded_params_empty_exposes_null_name_and_value_ptrs() -> Result<()> {
+        let encoded = EncodedParams::encode(std::iter::empty::<(&str, QueryParam)>())?;
+
+        assert_eq!(encoded.len(), 0);
+        assert!(encoded.names_ptr().is_null());
+        assert!(encoded.values_ptr().is_null());
+        Ok(())
+    }
+
+    #[test]
+    fn encoded_params_exposes_parallel_name_and_value_ptrs() -> Result<()> {
+        use std::ffi::CStr;
+
+        let encoded = EncodedParams::encode([
+            ("x", QueryParam::from(5_u64)),
+            ("label", QueryParam::from("ok")),
+        ])?;
+
+        assert_eq!(encoded.len(), 2);
+        assert!(!encoded.names_ptr().is_null());
+        assert!(!encoded.values_ptr().is_null());
+
+        unsafe {
+            assert_eq!(CStr::from_ptr(*encoded.names_ptr()).to_bytes(), b"x");
+            assert_eq!(
+                CStr::from_ptr(*encoded.names_ptr().add(1)).to_bytes(),
+                b"label"
+            );
+            assert_eq!(CStr::from_ptr(*encoded.values_ptr()).to_bytes(), b"5");
+            assert_eq!(
+                CStr::from_ptr(*encoded.values_ptr().add(1)).to_bytes(),
+                b"ok"
+            );
+        }
+        Ok(())
     }
 }

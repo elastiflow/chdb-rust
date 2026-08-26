@@ -12,7 +12,7 @@ use crate::arrow_query_stream::ArrowQueryStream;
 use crate::arrow_stream::{ArrowArray, ArrowSchema, ArrowStream};
 use crate::error::{Error, Result};
 use crate::format::OutputFormat;
-use crate::query_param::QueryParam;
+use crate::query_param::{EncodedParams, QueryParam};
 use crate::query_result::QueryResult;
 use crate::query_stream::QueryStream;
 use crate::{bindings, registry, CHDB_PROGRAM_NAME};
@@ -366,9 +366,28 @@ impl Connection {
         V: Into<QueryParam>,
         I: IntoIterator<Item = (K, V)>,
     {
-        let _ = (sql, format, params);
-        let _conn = unsafe { *self.inner };
-        todo!("Connection::query_with_params")
+        let query_cstr = CString::new(sql)?;
+        let format_cstr = CString::new(format.as_str())?;
+        let encoded = EncodedParams::encode(params)?;
+
+        let conn = unsafe { *self.inner };
+        let result_ptr = unsafe {
+            bindings::chdb_query_with_params(
+                conn,
+                query_cstr.as_ptr(),
+                format_cstr.as_ptr(),
+                encoded.names_ptr(),
+                encoded.values_ptr(),
+                encoded.len(),
+            )
+        };
+
+        if result_ptr.is_null() {
+            return Err(Error::NoResult);
+        }
+
+        let result = QueryResult::new(result_ptr);
+        result.check_error()
     }
 
     #[cfg(feature = "arrow")]
