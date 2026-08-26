@@ -1,0 +1,270 @@
+//! ClickHouse query parameter values for `{name:Type}` placeholders.
+//!
+//! Values are encoded as strings for the libchdb C API.
+//!
+//! After the encoded values have been sent to chDB, the engine resolves types from the placeholder
+//! annotation in the SQL text.
+
+use std::borrow::Cow;
+
+use crate::error::Result;
+
+/// Builder for mixed-type parameter maps.
+///
+/// # Examples
+///
+/// ```no_run
+/// use chdb_rust::connection::Connection;
+/// use chdb_rust::format::OutputFormat;
+/// use chdb_rust::query_param::QueryParams;
+///
+/// let conn = Connection::open_in_memory()?;
+/// let params = QueryParams::new()
+///     .bind("x", 5_u64)
+///     .bind("label", "ok");
+/// let _ = conn.query_with_params(
+///     "SELECT {x:UInt64} AS x, {label:String} AS label",
+///     OutputFormat::CSV,
+///     params,
+/// )?;
+/// # Ok::<(), chdb_rust::error::Error>(())
+/// ```
+#[derive(Debug, Default, Clone)]
+pub struct QueryParams {
+    pairs: Vec<(String, QueryParam)>,
+}
+
+/// A value bound to a `{name:Type}` placeholder in a parameterized query.
+///
+/// Use [`From`] conversions for scalars, strings, options, and arrays. For pre-formatted
+/// ClickHouse literals (tuples, etc.), use [`Self::raw`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum QueryParam {
+    /// SQL NULL for `Nullable(...)` placeholders (`\N`).
+    Null,
+    Bool(bool),
+    Int64(i64),
+    UInt64(u64),
+    Float64(f64),
+    /// Raw text for `String`, `Date`, `Identifier`, and similar placeholders.
+    Text(String),
+    /// Pre-formatted ClickHouse literal (e.g. `(7,'x')`, `[1, 2, 3]`).
+    Raw(String),
+}
+
+impl QueryParam {
+    /// Pass a pre-formatted ClickHouse parameter literal through unchanged.
+    pub fn raw(value: impl Into<String>) -> Self {
+        Self::Raw(value.into())
+    }
+
+    pub(crate) fn encode_nul_terminated(&self) -> Result<Cow<'_, str>> {
+        Ok(match self {
+            Self::Null => Cow::Borrowed("\\N"),
+            Self::Bool(true) => Cow::Borrowed("true"),
+            Self::Bool(false) => Cow::Borrowed("false"),
+            Self::Int64(value) => Cow::Owned(value.to_string()),
+            Self::UInt64(value) => Cow::Owned(value.to_string()),
+            Self::Float64(value) => Cow::Owned(value.to_string()),
+            Self::Text(value) | Self::Raw(value) => Cow::Borrowed(value),
+        })
+    }
+}
+
+impl QueryParams {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn bind(mut self, name: impl AsRef<str>, value: impl Into<QueryParam>) -> Self {
+        self.pairs.push((name.as_ref().to_owned(), value.into()));
+        self
+    }
+}
+
+impl IntoIterator for QueryParams {
+    type Item = (String, QueryParam);
+    type IntoIter = std::vec::IntoIter<(String, QueryParam)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.pairs.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a QueryParams {
+    type Item = (&'a str, &'a QueryParam);
+    type IntoIter = std::iter::Map<
+        std::slice::Iter<'a, (String, QueryParam)>,
+        fn(&'a (String, QueryParam)) -> (&'a str, &'a QueryParam),
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.pairs
+            .iter()
+            .map(|(name, value)| (name.as_str(), value))
+    }
+}
+
+impl From<bool> for QueryParam {
+    fn from(value: bool) -> Self {
+        Self::Bool(value)
+    }
+}
+
+impl From<i8> for QueryParam {
+    fn from(value: i8) -> Self {
+        Self::Int64(i64::from(value))
+    }
+}
+
+impl From<i16> for QueryParam {
+    fn from(value: i16) -> Self {
+        Self::Int64(i64::from(value))
+    }
+}
+
+impl From<i32> for QueryParam {
+    fn from(value: i32) -> Self {
+        Self::Int64(i64::from(value))
+    }
+}
+
+impl From<i64> for QueryParam {
+    fn from(value: i64) -> Self {
+        Self::Int64(value)
+    }
+}
+
+impl From<u8> for QueryParam {
+    fn from(value: u8) -> Self {
+        Self::UInt64(u64::from(value))
+    }
+}
+
+impl From<u16> for QueryParam {
+    fn from(value: u16) -> Self {
+        Self::UInt64(u64::from(value))
+    }
+}
+
+impl From<u32> for QueryParam {
+    fn from(value: u32) -> Self {
+        Self::UInt64(u64::from(value))
+    }
+}
+
+impl From<u64> for QueryParam {
+    fn from(value: u64) -> Self {
+        Self::UInt64(value)
+    }
+}
+
+impl From<f32> for QueryParam {
+    fn from(value: f32) -> Self {
+        Self::Float64(f64::from(value))
+    }
+}
+
+impl From<f64> for QueryParam {
+    fn from(value: f64) -> Self {
+        Self::Float64(value)
+    }
+}
+
+impl From<String> for QueryParam {
+    fn from(value: String) -> Self {
+        Self::Text(value)
+    }
+}
+
+impl From<&str> for QueryParam {
+    fn from(value: &str) -> Self {
+        Self::Text(value.to_owned())
+    }
+}
+
+impl From<&QueryParam> for QueryParam {
+    fn from(value: &QueryParam) -> Self {
+        value.clone()
+    }
+}
+
+impl<T> From<Option<T>> for QueryParam
+where
+    T: Into<QueryParam>,
+{
+    fn from(value: Option<T>) -> Self {
+        match value {
+            None => Self::Null,
+            Some(value) => value.into(),
+        }
+    }
+}
+
+impl From<Vec<u64>> for QueryParam {
+    fn from(values: Vec<u64>) -> Self {
+        let body = values
+            .into_iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        Self::Raw(format!("[{body}]"))
+    }
+}
+
+impl From<Vec<i64>> for QueryParam {
+    fn from(values: Vec<i64>) -> Self {
+        let body = values
+            .into_iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        Self::Raw(format!("[{body}]"))
+    }
+}
+
+impl From<&[u64]> for QueryParam {
+    fn from(values: &[u64]) -> Self {
+        Self::from(values.to_vec())
+    }
+}
+
+impl From<&[i64]> for QueryParam {
+    fn from(values: &[i64]) -> Self {
+        Self::from(values.to_vec())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encodes_scalars_for_nul_terminated_api() -> Result<()> {
+        assert_eq!(QueryParam::from(42_i64).encode_nul_terminated()?, "42");
+        assert_eq!(QueryParam::from(true).encode_nul_terminated()?, "true");
+        assert_eq!(QueryParam::from("hello").encode_nul_terminated()?, "hello");
+        assert_eq!(QueryParam::Null.encode_nul_terminated()?, "\\N");
+        Ok(())
+    }
+
+    #[test]
+    fn encodes_array_as_clickhouse_literal() -> Result<()> {
+        assert_eq!(
+            QueryParam::from(vec![1_u64, 2, 3]).encode_nul_terminated()?,
+            "[1, 2, 3]"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn query_params_builder_collects_mixed_types() {
+        let params = QueryParams::new().bind("x", 5_u64).bind("label", "ok");
+        let collected: Vec<_> = params.into_iter().collect();
+        assert_eq!(collected.len(), 2);
+        assert_eq!(collected[0].0, "x");
+        assert_eq!(collected[0].1, QueryParam::UInt64(5));
+        assert_eq!(collected[1].0, "label");
+        assert_eq!(collected[1].1, QueryParam::Text("ok".into()));
+    }
+}

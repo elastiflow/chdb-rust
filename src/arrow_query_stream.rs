@@ -16,6 +16,7 @@ use arrow::record_batch::RecordBatch;
 use crate::bindings;
 use crate::connection::Connection;
 use crate::error::{Error, Result};
+use crate::query_param::QueryParam;
 use crate::query_result::QueryResult;
 
 enum ArrowQueryStreamConnection<'a> {
@@ -26,8 +27,11 @@ enum ArrowQueryStreamConnection<'a> {
 /// A streaming Arrow query result that yields record batches.
 ///
 /// Returned by [`Connection::query_stream_arrow`](crate::connection::Connection::query_stream_arrow),
-/// [`Session::execute_stream_arrow`](crate::session::Session::execute_stream_arrow), and
-/// [`execute_stream_arrow`](crate::execute_stream_arrow). Each batch is produced via the
+/// [`Connection::query_stream_arrow_with_params`](crate::connection::Connection::query_stream_arrow_with_params),
+/// [`Session::execute_stream_arrow`](crate::session::Session::execute_stream_arrow),
+/// [`Session::execute_stream_arrow_with_params`](crate::session::Session::execute_stream_arrow_with_params),
+/// [`execute_stream_arrow`](crate::execute_stream_arrow), and
+/// [`execute_stream_arrow_with_params`](crate::execute_stream_arrow_with_params). Each batch is produced via the
 /// Arrow C Data Interface.
 ///
 /// `ArrowQueryStream` also implements [`Iterator`].
@@ -63,6 +67,42 @@ impl<'a> ArrowQueryStream<'a> {
         })
     }
 
+    pub(crate) fn start_borrowed_with_params<K, V, I>(
+        conn: &'a Connection,
+        sql: &str,
+        params: I,
+    ) -> Result<Self>
+    where
+        K: AsRef<str>,
+        V: Into<QueryParam>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        let inner = Self::start_query_with_params(conn.handle(), sql, params)?;
+        Ok(Self {
+            conn: ArrowQueryStreamConnection::Borrowed(conn),
+            inner,
+            finished: false,
+        })
+    }
+
+    pub(crate) fn start_owned_with_params<K, V, I>(
+        conn: Connection,
+        sql: &str,
+        params: I,
+    ) -> Result<Self>
+    where
+        K: AsRef<str>,
+        V: Into<QueryParam>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        let inner = Self::start_query_with_params(conn.handle(), sql, params)?;
+        Ok(Self {
+            conn: ArrowQueryStreamConnection::Owned(conn),
+            inner,
+            finished: false,
+        })
+    }
+
     fn start_query(
         conn: bindings::chdb_connection,
         sql: &str,
@@ -85,6 +125,20 @@ impl<'a> ArrowQueryStream<'a> {
         std::mem::forget(ManuallyDrop::into_inner(probe));
 
         Ok(stream_ptr)
+    }
+
+    fn start_query_with_params<K, V, I>(
+        conn: bindings::chdb_connection,
+        sql: &str,
+        params: I,
+    ) -> Result<*mut bindings::chdb_result>
+    where
+        K: AsRef<str>,
+        V: Into<QueryParam>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        let _ = (conn, sql, params);
+        todo!("ArrowQueryStream::start_query_with_params")
     }
 
     fn conn_handle(&self) -> bindings::chdb_connection {

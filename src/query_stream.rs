@@ -10,6 +10,7 @@ use crate::bindings;
 use crate::connection::Connection;
 use crate::error::{Error, Result};
 use crate::format::OutputFormat;
+use crate::query_param::QueryParam;
 use crate::query_result::QueryResult;
 
 enum QueryStreamConnection<'a> {
@@ -20,8 +21,11 @@ enum QueryStreamConnection<'a> {
 /// A streaming query result that yields data in chunks.
 ///
 /// `QueryStream` is returned by [`Connection::query_stream`](crate::connection::Connection::query_stream),
-/// [`Session::execute_stream`](crate::session::Session::execute_stream), and
-/// [`execute_stream`](crate::execute_stream). Each chunk is a [`QueryResult`] that the caller owns
+/// [`Connection::query_stream_with_params`](crate::connection::Connection::query_stream_with_params),
+/// [`Session::execute_stream`](crate::session::Session::execute_stream),
+/// [`Session::execute_stream_with_params`](crate::session::Session::execute_stream_with_params),
+/// [`execute_stream`](crate::execute_stream), and
+/// [`execute_stream_with_params`](crate::execute_stream_with_params). Each chunk is a [`QueryResult`] that the caller owns
 /// and must drop before requesting the next chunk.
 ///
 /// `QueryStream` also implements [`Iterator`], so you can collect chunks with adapter methods
@@ -80,6 +84,44 @@ impl<'a> QueryStream<'a> {
         })
     }
 
+    pub(crate) fn start_borrowed_with_params<K, V, I>(
+        conn: &'a Connection,
+        sql: &str,
+        format: OutputFormat,
+        params: I,
+    ) -> Result<Self>
+    where
+        K: AsRef<str>,
+        V: Into<QueryParam>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        let stream = Self::start_query_with_params(conn.handle(), sql, format, params)?;
+        Ok(Self {
+            conn: QueryStreamConnection::Borrowed(conn),
+            stream,
+            finished: false,
+        })
+    }
+
+    pub(crate) fn start_owned_with_params<K, V, I>(
+        conn: Connection,
+        sql: &str,
+        format: OutputFormat,
+        params: I,
+    ) -> Result<Self>
+    where
+        K: AsRef<str>,
+        V: Into<QueryParam>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        let stream = Self::start_query_with_params(conn.handle(), sql, format, params)?;
+        Ok(Self {
+            conn: QueryStreamConnection::Owned(conn),
+            stream,
+            finished: false,
+        })
+    }
+
     fn start_query(
         conn: bindings::chdb_connection,
         sql: &str,
@@ -103,6 +145,21 @@ impl<'a> QueryStream<'a> {
         std::mem::forget(ManuallyDrop::into_inner(probe));
 
         Ok(stream_ptr)
+    }
+
+    fn start_query_with_params<K, V, I>(
+        conn: bindings::chdb_connection,
+        sql: &str,
+        format: OutputFormat,
+        params: I,
+    ) -> Result<*mut bindings::chdb_result>
+    where
+        K: AsRef<str>,
+        V: Into<QueryParam>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        let _ = (conn, sql, format, params);
+        todo!("QueryStream::start_query_with_params")
     }
 
     fn conn_handle(&self) -> bindings::chdb_connection {

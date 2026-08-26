@@ -7,9 +7,12 @@ use std::ffi::{c_char, CString};
 #[cfg(all(feature = "arrow", direct_arrow_insert))]
 use crate::arrow_options::InsertOptions;
 #[cfg(feature = "arrow")]
+use crate::arrow_query_stream::ArrowQueryStream;
+#[cfg(feature = "arrow")]
 use crate::arrow_stream::{ArrowArray, ArrowSchema, ArrowStream};
 use crate::error::{Error, Result};
 use crate::format::OutputFormat;
+use crate::query_param::QueryParam;
 use crate::query_result::QueryResult;
 use crate::query_stream::QueryStream;
 use crate::{bindings, registry, CHDB_PROGRAM_NAME};
@@ -268,6 +271,42 @@ impl Connection {
         QueryStream::start_borrowed(self, sql, format)
     }
 
+    /// Execute a query with `{name:Type}` parameter binding and stream text chunks.
+    ///
+    /// Like [`Self::query_stream`], but SQL placeholders are bound from `params`
+    /// server-side before streaming begins.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use chdb_rust::connection::Connection;
+    /// use chdb_rust::format::OutputFormat;
+    ///
+    /// let conn = Connection::open_in_memory()?;
+    /// let mut stream = conn.query_stream_with_params(
+    ///     "SELECT {x:UInt64} AS v",
+    ///     OutputFormat::CSV,
+    ///     [("x", 11_u64)],
+    /// )?;
+    /// while let Some(chunk) = stream.next_chunk()? {
+    ///     print!("{}", chunk.data_utf8_lossy());
+    /// }
+    /// # Ok::<(), chdb_rust::error::Error>(())
+    /// ```
+    pub fn query_stream_with_params<'a, K, V, I>(
+        &'a self,
+        sql: &str,
+        format: OutputFormat,
+        params: I,
+    ) -> Result<QueryStream<'a>>
+    where
+        K: AsRef<str>,
+        V: Into<QueryParam>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        QueryStream::start_borrowed_with_params(self, sql, format, params)
+    }
+
     /// Execute a query and stream the result as Arrow record batches.
     ///
     /// Each call to [`Iterator::next`] or [`ArrowQueryStream::next_batch`] on the
@@ -294,6 +333,76 @@ impl Connection {
         sql: &str,
     ) -> Result<crate::arrow_query_stream::ArrowQueryStream<'a>> {
         crate::arrow_query_stream::ArrowQueryStream::start_borrowed(self, sql)
+    }
+
+    /// Execute a query with ClickHouse `{name:Type}` parameter binding.
+    ///
+    /// Parameter values are encoded and bound server-side; they are never
+    /// interpolated into the SQL text. Names in `params` need not match placeholder
+    /// order in the query.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use chdb_rust::connection::Connection;
+    /// use chdb_rust::format::OutputFormat;
+    ///
+    /// let conn = Connection::open_in_memory()?;
+    /// let result = conn.query_with_params(
+    ///     "SELECT {x:UInt64} + {y:UInt64} AS total",
+    ///     OutputFormat::CSV,
+    ///     [("x", 5_u64), ("y", 7_u64)],
+    /// )?;
+    /// # Ok::<(), chdb_rust::error::Error>(())
+    /// ```
+    pub fn query_with_params<K, V, I>(
+        &self,
+        sql: &str,
+        format: OutputFormat,
+        params: I,
+    ) -> Result<QueryResult>
+    where
+        K: AsRef<str>,
+        V: Into<QueryParam>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        let _ = (sql, format, params);
+        let _conn = unsafe { *self.inner };
+        todo!("Connection::query_with_params")
+    }
+
+    #[cfg(feature = "arrow")]
+    /// Execute a query with `{name:Type}` parameter binding and stream Arrow batches.
+    ///
+    /// Like [`Self::query_stream_arrow`], but SQL placeholders are bound from `params`
+    /// server-side before streaming begins.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use chdb_rust::connection::Connection;
+    ///
+    /// let conn = Connection::open_in_memory()?;
+    /// let mut stream = conn.query_stream_arrow_with_params(
+    ///     "SELECT {x:UInt64} AS v",
+    ///     [("x", 11_u64)],
+    /// )?;
+    /// while let Some(batch) = stream.next_batch()? {
+    ///     println!("rows: {}", batch.num_rows());
+    /// }
+    /// # Ok::<(), chdb_rust::error::Error>(())
+    /// ```
+    pub fn query_stream_arrow_with_params<'a, K, V, I>(
+        &'a self,
+        sql: &str,
+        params: I,
+    ) -> Result<ArrowQueryStream<'a>>
+    where
+        K: AsRef<str>,
+        V: Into<QueryParam>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        ArrowQueryStream::start_borrowed_with_params(self, sql, params)
     }
 
     #[cfg(feature = "arrow")]

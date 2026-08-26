@@ -19,9 +19,12 @@ use crate::arrow_insert::{
 };
 #[cfg(feature = "arrow")]
 use crate::arrow_options::InsertOptions;
+#[cfg(feature = "arrow")]
+use crate::arrow_query_stream::ArrowQueryStream;
 use crate::connection::Connection;
 use crate::error::{Error, Result};
 use crate::format::OutputFormat;
+use crate::query_param::QueryParam;
 use crate::query_result::QueryResult;
 use crate::query_stream::QueryStream;
 
@@ -414,6 +417,44 @@ impl Session {
             .query_stream(query, fmt)
     }
 
+    /// Execute a parameterized query and stream the result in chunks.
+    ///
+    /// Output format may be supplied via `query_args`; other [`Arg`] variants are
+    /// ignored here, matching [`Self::execute_stream`].
+    pub fn execute_stream_with_params<'a, K, V, I>(
+        &'a self,
+        query: &str,
+        query_args: Option<&[Arg]>,
+        params: I,
+    ) -> Result<QueryStream<'a>>
+    where
+        K: AsRef<str>,
+        V: Into<QueryParam>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        let fmt = extract_output_format(query_args, self.default_format);
+        self.conn.query_stream_with_params(query, fmt, params)
+    }
+
+    /// Execute a query with ClickHouse `{name:Type}` parameter binding.
+    ///
+    /// Output format may be supplied via `query_args`; other [`Arg`] variants are
+    /// ignored here, matching [`Self::execute`].
+    pub fn execute_with_params<K, V, I>(
+        &self,
+        query: &str,
+        query_args: Option<&[Arg]>,
+        params: I,
+    ) -> Result<QueryResult>
+    where
+        K: AsRef<str>,
+        V: Into<QueryParam>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        let fmt = extract_output_format(query_args, self.default_format);
+        self.conn.query_with_params(query, fmt, params)
+    }
+
     /// Access the session's [`Connection`] for Arrow registration and low-level queries.
     pub fn connection(&self) -> &Connection {
         self.conn
@@ -510,6 +551,26 @@ impl Session {
             .as_mut()
             .expect("a session holds its connection until it is dropped")
             .query_stream_arrow(query)
+    }
+
+    /// Execute a parameterized query and stream the result as Arrow record batches.
+    ///
+    /// Session-level counterpart of
+    /// [`Connection::query_stream_arrow_with_params`](crate::connection::Connection::query_stream_arrow_with_params).
+    ///
+    /// Available when the crate is built with the `arrow` feature.
+    #[cfg(feature = "arrow")]
+    pub fn execute_stream_arrow_with_params<'a, K, V, I>(
+        &'a self,
+        query: &str,
+        params: I,
+    ) -> Result<ArrowQueryStream<'a>>
+    where
+        K: AsRef<str>,
+        V: Into<QueryParam>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        self.conn.query_stream_arrow_with_params(query, params)
     }
 }
 
