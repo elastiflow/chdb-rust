@@ -10,7 +10,7 @@ use crate::bindings;
 use crate::connection::Connection;
 use crate::error::{Error, Result};
 use crate::format::OutputFormat;
-use crate::query_param::QueryParam;
+use crate::query_param::{EncodedParams, QueryParam};
 use crate::query_result::QueryResult;
 
 enum QueryStreamConnection<'a> {
@@ -158,8 +158,27 @@ impl<'a> QueryStream<'a> {
         V: Into<QueryParam>,
         I: IntoIterator<Item = (K, V)>,
     {
-        let _ = (conn, sql, format, params);
-        todo!("QueryStream::start_query_with_params")
+        let query_cstr = CString::new(sql)?;
+        let format_cstr = CString::new(format.as_str())?;
+        let encoded = EncodedParams::encode(params)?;
+
+        let stream_ptr = unsafe {
+            bindings::chdb_stream_query_with_params(
+                conn,
+                query_cstr.as_ptr(),
+                format_cstr.as_ptr(),
+                encoded.names_ptr(),
+                encoded.values_ptr(),
+                encoded.len(),
+            )
+        };
+
+        if stream_ptr.is_null() {
+            return Err(Error::NoResult);
+        }
+
+        Self::check_stream_error(stream_ptr)?;
+        Ok(stream_ptr)
     }
 
     fn conn_handle(&self) -> bindings::chdb_connection {
