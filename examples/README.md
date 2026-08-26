@@ -19,6 +19,7 @@ cargo run --features durable --example 09_durable_object
 cargo run --example 10_query_streaming
 cargo run --example 11_query_streaming_arrow
 cargo run --example 12_arrow_query_stream
+cargo run --example 13_query_with_params
 ```
 
 ## Example Files
@@ -35,6 +36,7 @@ cargo run --example 12_arrow_query_stream
 10. **10_query_streaming.rs** - Streaming large query results in chunks without materializing the full output
 11. **11_query_streaming_arrow.rs** - Streaming large query results in chunks, decoding Arrow IPC bytes into human-readable tables (requires `--features arrow`)
 12. **12_arrow_query_stream.rs** - Streaming large query results as Arrow `RecordBatch` values via the C Data Interface (requires `--features arrow`)
+13. **13_query_with_params.rs** - Inventory low-stock / price filters bound with `{name:Type}` placeholders via `Session::execute_with_params`
 
 ## Prerequisites
 
