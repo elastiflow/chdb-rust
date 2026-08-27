@@ -85,6 +85,8 @@ pub enum QueryParam {
     Text(String),
     /// Pre-formatted ClickHouse literal (e.g. `(7,'x')`, `[1, 2, 3]`).
     Raw(String),
+    /// ClickHouse `Array(...)` value, encoded as `[...]`.
+    Array(Vec<QueryParam>),
 }
 
 impl QueryParam {
@@ -93,7 +95,11 @@ impl QueryParam {
         Self::Raw(value.into())
     }
 
-    pub(crate) fn encode_nul_terminated(&self) -> Result<Cow<'_, str>> {
+    /// Encode this value as a root-level ClickHouse query parameter string.
+    ///
+    /// Root strings are unquoted. Nested values inside [`Self::Array`] use
+    /// nested rules (quoted strings, `NULL`).
+    pub fn encode(&self) -> Result<Cow<'_, str>> {
         Ok(match self {
             Self::Null => Cow::Borrowed("\\N"),
             Self::Bool(true) => Cow::Borrowed("true"),
@@ -102,7 +108,44 @@ impl QueryParam {
             Self::UInt64(value) => Cow::Owned(value.to_string()),
             Self::Float64(value) => Cow::Owned(value.to_string()),
             Self::Text(value) | Self::Raw(value) => Cow::Borrowed(value),
+            Self::Array(values) => Cow::Owned(Self::encode_array(values)?),
         })
+    }
+
+    /// Encode this value as an element inside an array/tuple/map literal.
+    fn encode_nested(&self) -> Result<Cow<'_, str>> {
+        Ok(match self {
+            Self::Null => Cow::Borrowed("NULL"),
+            Self::Bool(true) => Cow::Borrowed("true"),
+            Self::Bool(false) => Cow::Borrowed("false"),
+            Self::Int64(value) => Cow::Owned(value.to_string()),
+            Self::UInt64(value) => Cow::Owned(value.to_string()),
+            Self::Float64(value) => Cow::Owned(value.to_string()),
+            Self::Text(value) => Cow::Owned(Self::quote_nested_string(value)),
+            Self::Raw(value) => Cow::Borrowed(value),
+            Self::Array(values) => Cow::Owned(Self::encode_array(values)?),
+        })
+    }
+
+    fn encode_array(values: &[QueryParam]) -> Result<String> {
+        let mut parts = Vec::with_capacity(values.len());
+        for value in values {
+            parts.push(value.encode_nested()?.into_owned());
+        }
+        Ok(format!("[{}]", parts.join(", ")))
+    }
+
+    fn quote_nested_string(value: &str) -> String {
+        let mut encoded = String::with_capacity(value.len() + 2);
+        encoded.push('\'');
+        for ch in value.chars() {
+            if ch == '\'' || ch == '\\' {
+                encoded.push('\\');
+            }
+            encoded.push(ch);
+        }
+        encoded.push('\'');
+        encoded
     }
 }
 
@@ -129,7 +172,7 @@ impl EncodedParams {
 
         for (name, value) in params {
             let param = value.into();
-            let encoded = param.encode_nul_terminated()?;
+            let encoded = param.encode()?;
             name_cstrs.push(CString::new(name.as_ref())?);
             value_cstrs.push(CString::new(encoded.as_ref())?);
         }
@@ -264,36 +307,20 @@ where
     }
 }
 
-impl From<Vec<u64>> for QueryParam {
-    fn from(values: Vec<u64>) -> Self {
-        let body = values
-            .into_iter()
-            .map(|value| value.to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-        Self::Raw(format!("[{body}]"))
+impl<T> From<Vec<T>> for QueryParam
+where
+    T: Into<QueryParam>,
+{
+    fn from(values: Vec<T>) -> Self {
+        Self::Array(values.into_iter().map(Into::into).collect())
     }
 }
 
-impl From<Vec<i64>> for QueryParam {
-    fn from(values: Vec<i64>) -> Self {
-        let body = values
-            .into_iter()
-            .map(|value| value.to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-        Self::Raw(format!("[{body}]"))
-    }
-}
-
-impl From<&[u64]> for QueryParam {
-    fn from(values: &[u64]) -> Self {
-        Self::from(values.to_vec())
-    }
-}
-
-impl From<&[i64]> for QueryParam {
-    fn from(values: &[i64]) -> Self {
+impl<T> From<&[T]> for QueryParam
+where
+    T: Into<QueryParam> + Clone,
+{
+    fn from(values: &[T]) -> Self {
         Self::from(values.to_vec())
     }
 }
