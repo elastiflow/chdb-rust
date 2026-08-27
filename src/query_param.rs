@@ -2,8 +2,8 @@
 //!
 //! Values are encoded as strings for the libchdb C API.
 //!
-//! After the encoded values have been sent to chDB, the engine resolves types from the placeholder
-//! annotation in the SQL text.
+//! After the encoded values have been sent to chDB, they are parsed by the chDB core library and
+//! substituted in the query during planning.
 
 use std::borrow::Cow;
 use std::ffi::{c_char, CString};
@@ -300,24 +300,172 @@ impl From<&[i64]> for QueryParam {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CStr;
+
     use super::*;
 
     #[test]
-    fn encodes_scalars_for_nul_terminated_api() -> Result<()> {
-        assert_eq!(QueryParam::from(42_i64).encode_nul_terminated()?, "42");
-        assert_eq!(QueryParam::from(true).encode_nul_terminated()?, "true");
-        assert_eq!(QueryParam::from("hello").encode_nul_terminated()?, "hello");
-        assert_eq!(QueryParam::Null.encode_nul_terminated()?, "\\N");
+    fn encode_root_covers_every_variant() -> Result<()> {
+        assert_eq!(QueryParam::Null.encode()?, "\\N");
+        assert_eq!(QueryParam::Bool(true).encode()?, "true");
+        assert_eq!(QueryParam::Bool(false).encode()?, "false");
+        assert_eq!(QueryParam::Int64(-42).encode()?, "-42");
+        assert_eq!(QueryParam::UInt64(42).encode()?, "42");
+        assert_eq!(QueryParam::Float64(1.5).encode()?, "1.5");
+        assert_eq!(QueryParam::Text(String::new()).encode()?, "");
+        assert_eq!(QueryParam::Text("hello".into()).encode()?, "hello");
+        assert_eq!(QueryParam::Text("it's".into()).encode()?, "it's");
+        assert_eq!(QueryParam::Text(r"a\b".into()).encode()?, r"a\b");
+        assert_eq!(QueryParam::raw("").encode()?, "");
+        assert_eq!(QueryParam::raw("(7,'x')").encode()?, "(7,'x')");
+        assert_eq!(QueryParam::raw("[1, 2, 3]").encode()?, "[1, 2, 3]");
+        assert_eq!(QueryParam::Array(vec![]).encode()?, "[]");
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Int64(1), QueryParam::Int64(2)]).encode()?,
+            "[1, 2]"
+        );
         Ok(())
     }
 
     #[test]
-    fn encodes_array_as_clickhouse_literal() -> Result<()> {
+    fn encode_nested_covers_every_variant_via_array() -> Result<()> {
         assert_eq!(
-            QueryParam::from(vec![1_u64, 2, 3]).encode_nul_terminated()?,
-            "[1, 2, 3]"
+            QueryParam::Array(vec![QueryParam::Null]).encode()?,
+            "[NULL]"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Bool(true), QueryParam::Bool(false)]).encode()?,
+            "[true, false]"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Int64(-1), QueryParam::UInt64(2)]).encode()?,
+            "[-1, 2]"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Float64(1.5)]).encode()?,
+            "[1.5]"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Text(String::new())]).encode()?,
+            "['']"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Text("hello".into())]).encode()?,
+            "['hello']"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::raw("(7,'x')")]).encode()?,
+            "[(7,'x')]"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Array(vec![
+                QueryParam::Int64(1),
+                QueryParam::Int64(2),
+            ])])
+            .encode()?,
+            "[[1, 2]]"
         );
         Ok(())
+    }
+
+    #[test]
+    fn encode_nested_escapes_quotes_and_backslashes_in_text() -> Result<()> {
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Text("'".into())]).encode()?,
+            r"['\'']"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Text(r"\".into())]).encode()?,
+            r"['\\']"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Text("it's".into())]).encode()?,
+            r"['it\'s']"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Text(r"a\b".into())]).encode()?,
+            r"['a\\b']"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Text(r"'\".into())]).encode()?,
+            r"['\'\\']"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![
+                QueryParam::Text("a".into()),
+                QueryParam::Text("b".into()),
+            ])
+            .encode()?,
+            "['a', 'b']"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn encode_array_mixed_and_nested_shapes() -> Result<()> {
+        assert_eq!(
+            QueryParam::Array(vec![
+                QueryParam::Int64(1),
+                QueryParam::Null,
+                QueryParam::Text("x".into()),
+                QueryParam::Bool(true),
+            ])
+            .encode()?,
+            "[1, NULL, 'x', true]"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![
+                QueryParam::Array(vec![QueryParam::Int64(1), QueryParam::Int64(2)]),
+                QueryParam::Array(vec![QueryParam::Int64(3), QueryParam::Int64(4)]),
+            ])
+            .encode()?,
+            "[[1, 2], [3, 4]]"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Array(vec![QueryParam::Text(
+                "it's".into()
+            )])])
+            .encode()?,
+            r"[['it\'s']]"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn from_option_none_encodes_as_root_null() -> Result<()> {
+        let value: Option<i64> = None;
+        assert_eq!(QueryParam::from(value).encode()?, "\\N");
+        Ok(())
+    }
+
+    #[test]
+    fn from_vec_and_slice_encode_as_arrays() -> Result<()> {
+        assert_eq!(QueryParam::from(Vec::<u64>::new()).encode()?, "[]");
+        assert_eq!(QueryParam::from(vec![1_u64, 2, 3]).encode()?, "[1, 2, 3]");
+        assert_eq!(QueryParam::from(vec![1_i32, 2, 3]).encode()?, "[1, 2, 3]");
+        assert_eq!(
+            QueryParam::from([4_i64, 5, 6].as_slice()).encode()?,
+            "[4, 5, 6]"
+        );
+        assert_eq!(
+            QueryParam::from(vec!["a".to_owned(), "b".to_owned()]).encode()?,
+            "['a', 'b']"
+        );
+        let values: Vec<Option<i64>> = vec![Some(1), None, Some(3)];
+        assert_eq!(QueryParam::from(values).encode()?, "[1, NULL, 3]");
+        assert_eq!(
+            QueryParam::from(vec![vec![1_u64, 2], vec![3, 4]]).encode()?,
+            "[[1, 2], [3, 4]]"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn from_vec_builds_array_variant() {
+        assert_eq!(
+            QueryParam::from(vec![1_i64, 2]),
+            QueryParam::Array(vec![QueryParam::Int64(1), QueryParam::Int64(2)])
+        );
     }
 
     #[test]
@@ -343,8 +491,6 @@ mod tests {
 
     #[test]
     fn encoded_params_exposes_parallel_name_and_value_ptrs() -> Result<()> {
-        use std::ffi::CStr;
-
         let encoded = EncodedParams::encode([
             ("x", QueryParam::from(5_u64)),
             ("label", QueryParam::from("ok")),
