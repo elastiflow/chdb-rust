@@ -58,6 +58,8 @@ fn main() -> Result<(), chdb_rust::error::Error> {
 
     // Same-typed values can be passed as an array of (name, value) tuples;
     // `Into<QueryParam>` converts each value for the C API.
+    //
+    // Mixed-type values are addressed below.
     let result = session.execute_with_params(
         "SELECT sku, product, qty, unit_cost
          FROM stock

@@ -271,10 +271,10 @@ impl Connection {
         QueryStream::start_borrowed(self, sql, format)
     }
 
-    /// Execute a query with `{name:Type}` parameter binding and stream text chunks.
+    /// Execute a query with ClickHouse `{name:Type}` parameter binding and stream text chunks.
     ///
     /// Like [`Self::query_stream`], but SQL placeholders are bound from `params`
-    /// server-side before streaming begins.
+    /// before streaming begins.
     ///
     /// # Examples
     ///
@@ -351,7 +351,7 @@ impl Connection {
     /// let result = conn.query_with_params(
     ///     "SELECT {x:UInt64} + {y:UInt64} AS total",
     ///     OutputFormat::CSV,
-    ///     [("x", 5_u64), ("y", 7_u64)],
+    ///     [("y", 5_u64), ("x", 7_u64)],
     /// )?;
     /// # Ok::<(), chdb_rust::error::Error>(())
     /// ```
@@ -370,6 +370,15 @@ impl Connection {
         let format_cstr = CString::new(format.as_str())?;
         let encoded = EncodedParams::encode(params)?;
 
+        // SAFETY:
+        // - `self.inner` is non-null and points at a live `chdb_connection` for the
+        //   lifetime of `self` (set in `Connection::open`, freed only in `Drop`).
+        // - `query_cstr` and `format_cstr` are NUL-terminated and outlive this call.
+        // - `encoded` owns the name/value `CString`s; `names_ptr`/`values_ptr` alias
+        //   those buffers for the duration of the call. libchdb may read them only
+        //   during this call and must not retain the pointers afterward.
+        // - When `encoded.len() == 0`, both pointer args are null, which the C API
+        //   accepts for an empty parameter list.
         let conn = unsafe { *self.inner };
         let result_ptr = unsafe {
             bindings::chdb_query_with_params(
@@ -391,7 +400,7 @@ impl Connection {
     }
 
     #[cfg(feature = "arrow")]
-    /// Execute a query with `{name:Type}` parameter binding and stream Arrow batches.
+    /// Execute a query with ClickHouse `{name:Type}` parameter binding and stream Arrow batches.
     ///
     /// Like [`Self::query_stream_arrow`], but SQL placeholders are bound from `params`
     /// server-side before streaming begins.

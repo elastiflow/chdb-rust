@@ -24,17 +24,11 @@ enum ArrowQueryStreamConnection<'a> {
     Owned(Connection),
 }
 
-/// A streaming Arrow query result that yields record batches.
+/// A streaming Arrow query that yields [`RecordBatch`] values one block at a time.
 ///
-/// Returned by [`Connection::query_stream_arrow`](crate::connection::Connection::query_stream_arrow),
-/// [`Connection::query_stream_arrow_with_params`](crate::connection::Connection::query_stream_arrow_with_params),
-/// [`Session::execute_stream_arrow`](crate::session::Session::execute_stream_arrow),
-/// [`Session::execute_stream_arrow_with_params`](crate::session::Session::execute_stream_arrow_with_params),
-/// [`execute_stream_arrow`](crate::execute_stream_arrow), and
-/// [`execute_stream_arrow_with_params`](crate::execute_stream_arrow_with_params). Each batch is produced via the
-/// Arrow C Data Interface.
-///
-/// `ArrowQueryStream` also implements [`Iterator`].
+/// Batches come from the Arrow C Data Interface (no Arrow IPC). Create a stream from a
+/// [`Connection`], [`Session`](crate::session::Session), or the crate-level
+/// `execute_stream_arrow*` helpers. Implements [`Iterator`].
 ///
 /// # Thread Safety
 ///
@@ -140,6 +134,17 @@ impl<'a> ArrowQueryStream<'a> {
         let query_cstr = CString::new(sql)?;
         let encoded = EncodedParams::encode(params)?;
 
+        // SAFETY:
+        // - `conn` is a live `chdb_connection` from `Connection::handle()` on an open
+        //   connection that outlives this call (borrowed or owned by the stream).
+        // - `query_cstr` is NUL-terminated and outlives this call.
+        // - The format argument is null, matching `chdb_stream_query_arrow` (Arrow
+        //   path does not take a text output format).
+        // - `encoded` owns the name/value `CString`s; `names_ptr`/`values_ptr` alias
+        //   those buffers for the duration of the call. libchdb may read them only
+        //   during this call (parameter bind at stream start) and must not retain them.
+        // - When `encoded.len() == 0`, both pointer args are null, which the C API
+        //   accepts for an empty parameter list.
         let stream_ptr = unsafe {
             bindings::chdb_stream_query_arrow_with_params(
                 conn,

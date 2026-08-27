@@ -152,7 +152,9 @@ impl QueryParam {
 /// NUL-terminated name/value C strings ready for `chdb_query_with_params`.
 ///
 /// Pointers returned by [`Self::names_ptr`] / [`Self::values_ptr`] are valid only
-/// while this struct remains alive.
+/// while this struct remains alive. Callers must keep `EncodedParams` live across
+/// the FFI call that consumes those pointers. The chDB C API is assumed to copy
+/// parameter names and values during that call and not retain the pointers.
 pub(crate) struct EncodedParams {
     _name_cstrs: Vec<CString>,
     _value_cstrs: Vec<CString>,

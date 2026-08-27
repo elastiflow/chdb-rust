@@ -417,7 +417,7 @@ impl Session {
             .query_stream(query, fmt)
     }
 
-    /// Execute a parameterized query and stream the result in chunks.
+    /// Execute a query with ClickHouse `{name:Type}` parameter binding and stream the result in chunks.
     ///
     /// Output format may be supplied via `query_args`; other [`Arg`] variants are
     /// ignored here, matching [`Self::execute_stream`].
@@ -553,7 +553,7 @@ impl Session {
             .query_stream_arrow(query)
     }
 
-    /// Execute a parameterized query and stream the result as Arrow record batches.
+    /// Execute a query with ClickHouse `{name:Type}` parameter binding and stream Arrow record batches.
     ///
     /// Session-level counterpart of
     /// [`Connection::query_stream_arrow_with_params`](crate::connection::Connection::query_stream_arrow_with_params).

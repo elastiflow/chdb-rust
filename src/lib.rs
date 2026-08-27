@@ -174,10 +174,10 @@ pub fn active_engine_refs() -> usize {
     registry::refs()
 }
 
-/// Execute a one-off parameterized query using an in-memory connection.
+/// Execute a one-off query with ClickHouse `{name:Type}` parameter binding.
 ///
-/// This is the parameterized counterpart to [`execute`]. Parameter values are
-/// bound server-side via ClickHouse `{name:Type}` placeholders.
+/// Counterpart to [`execute`]. Parameter values are bound server-side and never
+/// interpolated into the SQL text.
 ///
 /// # Examples
 ///
@@ -256,9 +256,9 @@ pub fn execute_stream(query: &str, query_args: Option<&[Arg]>) -> Result<QuerySt
     QueryStream::start_owned(conn, query, fmt)
 }
 
-/// Execute a one-off parameterized streaming query using an in-memory connection.
+/// Execute a one-off query with ClickHouse `{name:Type}` parameter binding and stream text chunks.
 ///
-/// Parameterized counterpart to [`execute_stream`].
+/// Counterpart to [`execute_stream`].
 ///
 /// # Examples
 ///
@@ -316,9 +316,9 @@ pub fn execute_stream_arrow(query: &str) -> Result<ArrowQueryStream<'static>> {
     ArrowQueryStream::start_owned(conn, query)
 }
 
-/// Execute a one-off parameterized Arrow streaming query using an in-memory connection.
+/// Execute a one-off query with ClickHouse `{name:Type}` parameter binding and stream Arrow batches.
 ///
-/// Parameterized counterpart to [`execute_stream_arrow`].
+/// Counterpart to [`execute_stream_arrow`].
 ///
 /// # Examples
 ///

@@ -162,6 +162,15 @@ impl<'a> QueryStream<'a> {
         let format_cstr = CString::new(format.as_str())?;
         let encoded = EncodedParams::encode(params)?;
 
+        // SAFETY:
+        // - `conn` is a live `chdb_connection` from `Connection::handle()` on an open
+        //   connection that outlives this call (borrowed or owned by the stream).
+        // - `query_cstr` and `format_cstr` are NUL-terminated and outlive this call.
+        // - `encoded` owns the name/value `CString`s; `names_ptr`/`values_ptr` alias
+        //   those buffers for the duration of the call. libchdb may read them only
+        //   during this call (parameter bind at stream start) and must not retain them.
+        // - When `encoded.len() == 0`, both pointer args are null, which the C API
+        //   accepts for an empty parameter list.
         let stream_ptr = unsafe {
             bindings::chdb_stream_query_with_params(
                 conn,
