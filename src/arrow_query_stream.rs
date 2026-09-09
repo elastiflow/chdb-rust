@@ -62,7 +62,7 @@ impl<'a> ArrowQueryStream<'a> {
     }
 
     pub(crate) fn start_borrowed_with_params<K, V, I>(
-        conn: &'a Connection,
+        conn: &'a mut Connection,
         sql: &str,
         params: I,
     ) -> Result<Self>
@@ -162,9 +162,10 @@ impl<'a> ArrowQueryStream<'a> {
 
         let probe = ManuallyDrop::new(QueryResult::new(stream_ptr));
         if let Err(e) = probe.check_error_ref() {
-            let _ = ManuallyDrop::into_inner(probe);
+            drop(ManuallyDrop::into_inner(probe));
             return Err(e);
         }
+        std::mem::forget(ManuallyDrop::into_inner(probe));
 
         Ok(stream_ptr)
     }
@@ -387,6 +388,51 @@ mod tests {
     fn test_arrow_query_stream_syntax_error_fails_at_start() -> Result<()> {
         let mut conn = Connection::open_in_memory()?;
         let result = conn.query_stream_arrow("SELECT invalid syntax here");
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_arrow_query_stream_with_params_empty_filter_returns_none() -> Result<()> {
+        let tmp = tempdir();
+        let mut session = SessionBuilder::new()
+            .with_data_path(tmp.path())
+            .with_auto_cleanup(true)
+            .build()?;
+
+        session.execute(
+            "CREATE TABLE items (id UInt64) ENGINE = MergeTree() ORDER BY id",
+            None,
+        )?;
+        session.execute("INSERT INTO items VALUES (1), (2), (3)", None)?;
+
+        let mut stream = session.execute_stream_arrow_with_params(
+            "SELECT * FROM items WHERE id > {min_id:UInt64}",
+            [("min_id", 100_u64)],
+        )?;
+        assert!(stream.next_batch()?.is_none());
+        assert!(stream.next_batch()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_arrow_query_stream_with_params_error_then_retry_returns_none() -> Result<()> {
+        let mut conn = Connection::open_in_memory()?;
+        let mut stream = conn.query_stream_arrow_with_params(
+            "SELECT * FROM nonexistent_table WHERE id = {id:UInt64}",
+            [("id", 1_u64)],
+        )?;
+
+        assert!(stream.next_batch().is_err());
+        assert!(stream.next_batch()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_arrow_query_stream_with_params_syntax_error_fails_at_start() -> Result<()> {
+        let mut conn = Connection::open_in_memory()?;
+        let result =
+            conn.query_stream_arrow_with_params("SELECT invalid syntax here", [("x", 1_u64)]);
         assert!(result.is_err());
         Ok(())
     }

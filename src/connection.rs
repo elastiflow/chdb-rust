@@ -282,7 +282,7 @@ impl Connection {
     /// use chdb_rust::connection::Connection;
     /// use chdb_rust::format::OutputFormat;
     ///
-    /// let conn = Connection::open_in_memory()?;
+    /// let mut conn = Connection::open_in_memory()?;
     /// let mut stream = conn.query_stream_with_params(
     ///     "SELECT {x:UInt64} AS v",
     ///     OutputFormat::CSV,
@@ -294,7 +294,7 @@ impl Connection {
     /// # Ok::<(), chdb_rust::error::Error>(())
     /// ```
     pub fn query_stream_with_params<'a, K, V, I>(
-        &'a self,
+        &'a mut self,
         sql: &str,
         format: OutputFormat,
         params: I,
@@ -410,7 +410,7 @@ impl Connection {
     /// ```no_run
     /// use chdb_rust::connection::Connection;
     ///
-    /// let conn = Connection::open_in_memory()?;
+    /// let mut conn = Connection::open_in_memory()?;
     /// let mut stream = conn.query_stream_arrow_with_params(
     ///     "SELECT {x:UInt64} AS v",
     ///     [("x", 11_u64)],
@@ -421,7 +421,7 @@ impl Connection {
     /// # Ok::<(), chdb_rust::error::Error>(())
     /// ```
     pub fn query_stream_arrow_with_params<'a, K, V, I>(
-        &'a self,
+        &'a mut self,
         sql: &str,
         params: I,
     ) -> Result<ArrowQueryStream<'a>>

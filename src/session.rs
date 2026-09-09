@@ -422,7 +422,7 @@ impl Session {
     /// Output format may be supplied via `query_args`; other [`Arg`] variants are
     /// ignored here, matching [`Self::execute_stream`].
     pub fn execute_stream_with_params<'a, K, V, I>(
-        &'a self,
+        &'a mut self,
         query: &str,
         query_args: Option<&[Arg]>,
         params: I,
@@ -433,7 +433,10 @@ impl Session {
         I: IntoIterator<Item = (K, V)>,
     {
         let fmt = extract_output_format(query_args, self.default_format);
-        self.conn.query_stream_with_params(query, fmt, params)
+        self.conn
+            .as_mut()
+            .expect("a session holds its connection until it is dropped")
+            .query_stream_with_params(query, fmt, params)
     }
 
     /// Execute a query with ClickHouse `{name:Type}` parameter binding.
@@ -452,7 +455,7 @@ impl Session {
         I: IntoIterator<Item = (K, V)>,
     {
         let fmt = extract_output_format(query_args, self.default_format);
-        self.conn.query_with_params(query, fmt, params)
+        self.connection().query_with_params(query, fmt, params)
     }
 
     /// Access the session's [`Connection`] for Arrow registration and low-level queries.
@@ -561,7 +564,7 @@ impl Session {
     /// Available when the crate is built with the `arrow` feature.
     #[cfg(feature = "arrow")]
     pub fn execute_stream_arrow_with_params<'a, K, V, I>(
-        &'a self,
+        &'a mut self,
         query: &str,
         params: I,
     ) -> Result<ArrowQueryStream<'a>>
@@ -570,7 +573,10 @@ impl Session {
         V: Into<QueryParam>,
         I: IntoIterator<Item = (K, V)>,
     {
-        self.conn.query_stream_arrow_with_params(query, params)
+        self.conn
+            .as_mut()
+            .expect("a session holds its connection until it is dropped")
+            .query_stream_arrow_with_params(query, params)
     }
 }
 

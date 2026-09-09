@@ -193,7 +193,7 @@ mod text_stream {
 
     #[test]
     fn stream_with_params_returns_bound_scalar() -> Result<()> {
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let mut stream = conn.query_stream_with_params(
             "SELECT {x:UInt64} AS v",
             OutputFormat::CSV,
@@ -209,7 +209,7 @@ mod text_stream {
 
     #[test]
     fn stream_with_params_limits_row_count() -> Result<()> {
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let mut stream = conn.query_stream_with_params(
             "SELECT number FROM numbers({n:UInt64})",
             OutputFormat::CSV,
@@ -227,7 +227,7 @@ mod text_stream {
 
     #[test]
     fn stream_with_params_missing_param_returns_substitution_error() {
-        let conn = Connection::open_in_memory().expect("connection");
+        let mut conn = Connection::open_in_memory().expect("connection");
         let mut stream = conn
             .query_stream_with_params(
                 "SELECT {x:UInt64} AS v",
@@ -253,7 +253,7 @@ mod text_stream {
 
     #[test]
     fn session_execute_stream_with_params() -> Result<()> {
-        let session = SessionBuilder::new()
+        let mut session = SessionBuilder::new()
             .with_data_path(std::env::temp_dir().join("chdb-rust-query-params-text-stream"))
             .with_auto_cleanup(true)
             .build()?;
@@ -286,7 +286,7 @@ mod arrow_stream {
 
     #[test]
     fn stream_arrow_with_params_returns_bound_scalar() -> Result<()> {
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let mut stream =
             conn.query_stream_arrow_with_params("SELECT {x:UInt64} AS v", [("x", 11_u64)])?;
 
@@ -305,7 +305,7 @@ mod arrow_stream {
 
     #[test]
     fn stream_arrow_with_params_limits_row_count() -> Result<()> {
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let mut stream = conn.query_stream_arrow_with_params(
             "SELECT number FROM numbers({n:UInt64})",
             [("n", 5_u64)],
@@ -322,7 +322,7 @@ mod arrow_stream {
 
     #[test]
     fn stream_arrow_missing_param_returns_substitution_error() {
-        let conn = Connection::open_in_memory().expect("connection");
+        let mut conn = Connection::open_in_memory().expect("connection");
         let mut stream = conn
             .query_stream_arrow_with_params("SELECT {x:UInt64} AS v", QueryParams::new())
             .expect("stream start succeeds; bind error arrives on fetch");
@@ -341,7 +341,7 @@ mod arrow_stream {
 
     #[test]
     fn session_execute_stream_arrow_with_params() -> Result<()> {
-        let session = SessionBuilder::new()
+        let mut session = SessionBuilder::new()
             .with_data_path(std::env::temp_dir().join("chdb-rust-query-params-arrow-stream"))
             .with_auto_cleanup(true)
             .build()?;

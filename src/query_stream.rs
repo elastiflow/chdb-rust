@@ -85,7 +85,7 @@ impl<'a> QueryStream<'a> {
     }
 
     pub(crate) fn start_borrowed_with_params<K, V, I>(
-        conn: &'a Connection,
+        conn: &'a mut Connection,
         sql: &str,
         format: OutputFormat,
         params: I,
@@ -186,7 +186,13 @@ impl<'a> QueryStream<'a> {
             return Err(Error::NoResult);
         }
 
-        Self::check_stream_error(stream_ptr)?;
+        let probe = ManuallyDrop::new(QueryResult::new(stream_ptr));
+        if let Err(e) = probe.check_error_ref() {
+            drop(ManuallyDrop::into_inner(probe));
+            return Err(e);
+        }
+        std::mem::forget(ManuallyDrop::into_inner(probe));
+
         Ok(stream_ptr)
     }
 
@@ -443,6 +449,32 @@ mod tests {
     fn test_query_stream_syntax_error_fails_at_start() -> Result<()> {
         let mut conn = Connection::open_in_memory()?;
         let result = conn.query_stream("SELECT invalid syntax here", OutputFormat::JSONEachRow);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_query_stream_with_params_error_then_retry_returns_none() -> Result<()> {
+        let mut conn = Connection::open_in_memory()?;
+        let mut stream = conn.query_stream_with_params(
+            "SELECT * FROM nonexistent_table WHERE id = {id:UInt64}",
+            OutputFormat::JSONEachRow,
+            [("id", 1_u64)],
+        )?;
+
+        assert!(stream.next_chunk().is_err());
+        assert!(stream.next_chunk()?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_query_stream_with_params_syntax_error_fails_at_start() -> Result<()> {
+        let mut conn = Connection::open_in_memory()?;
+        let result = conn.query_stream_with_params(
+            "SELECT invalid syntax here",
+            OutputFormat::JSONEachRow,
+            [("x", 1_u64)],
+        );
         assert!(result.is_err());
         Ok(())
     }

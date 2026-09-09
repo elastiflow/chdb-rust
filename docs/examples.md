@@ -144,6 +144,10 @@ For large result sets, avoid loading everything into a `QueryResult` at once. Us
 - **Arrow IPC stream bytes** — [`examples/11_query_streaming_arrow.rs`](../examples/11_query_streaming_arrow.rs) streams raw Arrow IPC data through `execute_stream` with `OutputFormat::ArrowStream`, then decodes each chunk with the Arrow `StreamReader`.
 - **Typed Arrow record batches** — [`examples/12_arrow_query_stream.rs`](../examples/12_arrow_query_stream.rs) uses `Session::execute_stream_arrow` to receive `RecordBatch` values directly via the Arrow C Data Interface, with no IPC serialization. Requires the `arrow` feature: `cargo run --example 12_arrow_query_stream`.
 
+### Parameterized Queries
+
+[`examples/13_query_with_params.rs`](../examples/13_query_with_params.rs) binds request filters with ClickHouse `{name:Type}` placeholders via `Session::execute_with_params`, instead of splicing values into the SQL string.
+
 ## Output Formats
 
 chdb-rust supports many output formats. Here are some common ones:
