@@ -380,7 +380,7 @@ impl Session {
     /// use chdb_rust::arg::Arg;
     /// use chdb_rust::format::OutputFormat;
     ///
-    /// let session = SessionBuilder::new()
+    /// let mut session = SessionBuilder::new()
     ///     .with_data_path("/tmp/mydb")
     ///     .with_auto_cleanup(true)
     ///     .build()?;
@@ -403,7 +403,7 @@ impl Session {
     /// - The query references non-existent tables or columns
     /// - The query execution fails for any other reason
     pub fn execute_stream<'a>(
-        &'a self,
+        &'a mut self,
         query: &str,
         query_args: Option<&[Arg]>,
     ) -> Result<QueryStream<'a>> {
@@ -500,7 +500,7 @@ impl Session {
     /// Available when the crate is built with the `arrow` feature.
     #[cfg(feature = "arrow")]
     pub fn execute_stream_arrow<'a>(
-        &'a self,
+        &'a mut self,
         query: &str,
     ) -> Result<crate::arrow_query_stream::ArrowQueryStream<'a>> {
         self.conn.query_stream_arrow(query)

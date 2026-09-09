@@ -242,7 +242,7 @@ impl Connection {
     /// use chdb_rust::connection::Connection;
     /// use chdb_rust::format::OutputFormat;
     ///
-    /// let conn = Connection::open_in_memory()?;
+    /// let mut conn = Connection::open_in_memory()?;
     /// let mut stream = conn.query_stream(
     ///     "SELECT number FROM numbers(100_000)",
     ///     OutputFormat::JSONEachRow,
@@ -260,7 +260,11 @@ impl Connection {
     /// - The query syntax is invalid
     /// - The query references non-existent tables or columns
     /// - The query execution fails for any other reason
-    pub fn query_stream<'a>(&'a self, sql: &str, format: OutputFormat) -> Result<QueryStream<'a>> {
+    pub fn query_stream<'a>(
+        &'a mut self,
+        sql: &str,
+        format: OutputFormat,
+    ) -> Result<QueryStream<'a>> {
         QueryStream::start_borrowed(self, sql, format)
     }
 
@@ -277,7 +281,7 @@ impl Connection {
     /// ```no_run
     /// use chdb_rust::connection::Connection;
     ///
-    /// let conn = Connection::open_in_memory()?;
+    /// let mut conn = Connection::open_in_memory()?;
     /// let mut stream = conn.query_stream_arrow("SELECT number FROM numbers(100_000)")?;
     /// while let Some(batch) = stream.next_batch()? {
     ///     println!("rows: {}", batch.num_rows());
@@ -286,7 +290,7 @@ impl Connection {
     /// ```
     #[cfg(feature = "arrow")]
     pub fn query_stream_arrow<'a>(
-        &'a self,
+        &'a mut self,
         sql: &str,
     ) -> Result<crate::arrow_query_stream::ArrowQueryStream<'a>> {
         crate::arrow_query_stream::ArrowQueryStream::start_borrowed(self, sql)

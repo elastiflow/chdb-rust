@@ -13,7 +13,7 @@ use crate::format::OutputFormat;
 use crate::query_result::QueryResult;
 
 enum QueryStreamConnection<'a> {
-    Borrowed(&'a Connection),
+    Borrowed(&'a mut Connection),
     Owned(Connection),
 }
 
@@ -29,11 +29,10 @@ enum QueryStreamConnection<'a> {
 ///
 /// # Thread Safety
 ///
-/// Only owned streams (for example from [`execute_stream`](crate::execute_stream)) implement
-/// [`Send`]. Streams tied to a borrowed [`Connection`](crate::connection::Connection) or
-/// [`Session`](crate::session::Session) do not, because [`Connection`] is [`Send`] but not
-/// [`Sync`]. Concurrent use from multiple threads is not recommended without external
-/// synchronization.
+/// While a borrowed stream is active, its [`Connection`](crate::connection::Connection)
+/// is exclusively borrowed and cannot be used for other queries. This prevents concurrent
+/// access to a non-[`Sync`] handle. Streams from [`execute_stream`](crate::execute_stream)
+/// own their connection outright.
 ///
 /// # Examples
 ///
@@ -41,7 +40,7 @@ enum QueryStreamConnection<'a> {
 /// use chdb_rust::connection::Connection;
 /// use chdb_rust::format::OutputFormat;
 ///
-/// let conn = Connection::open_in_memory()?;
+/// let mut conn = Connection::open_in_memory()?;
 /// let mut stream = conn.query_stream(
 ///     "SELECT number FROM numbers(100_000)",
 ///     OutputFormat::JSONEachRow,
@@ -60,7 +59,7 @@ pub struct QueryStream<'a> {
 
 impl<'a> QueryStream<'a> {
     pub(crate) fn start_borrowed(
-        conn: &'a Connection,
+        conn: &'a mut Connection,
         sql: &str,
         format: OutputFormat,
     ) -> Result<Self> {
@@ -130,7 +129,7 @@ impl<'a> QueryStream<'a> {
     /// use chdb_rust::connection::Connection;
     /// use chdb_rust::format::OutputFormat;
     ///
-    /// let conn = Connection::open_in_memory()?;
+    /// let mut conn = Connection::open_in_memory()?;
     /// let mut stream = conn.query_stream(
     ///     "SELECT number FROM numbers(10)",
     ///     OutputFormat::JSONEachRow,
@@ -220,11 +219,6 @@ impl Drop for QueryStream<'_> {
     }
 }
 
-// Safety: Only the owned variant (`QueryStream<'static>` from `execute_stream`) is Send.
-// It owns the Connection outright. Borrowed streams hold `&Connection` and must stay on
-// the thread that owns the connection because Connection is Send but !Sync.
-unsafe impl Send for QueryStream<'static> {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,7 +229,7 @@ mod tests {
     #[test]
     fn test_large_stream_row_count_and_chunking() -> Result<()> {
         const ROWS: u64 = 100_000;
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let mut stream = conn.query_stream(
             &format!("SELECT number FROM numbers({ROWS})"),
             OutputFormat::JSONEachRow,
@@ -267,7 +261,7 @@ mod tests {
 
         let materialized = execute(&query, args)?;
         let mut streamed = String::new();
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let mut stream = conn.query_stream(&query, OutputFormat::JSONEachRow)?;
         while let Some(chunk) = stream.next_chunk()? {
             streamed.push_str(&chunk.data_utf8_lossy());
@@ -324,7 +318,7 @@ mod tests {
 
     #[test]
     fn test_query_stream_basic() -> Result<()> {
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let mut stream =
             conn.query_stream("SELECT number FROM numbers(5)", OutputFormat::JSONEachRow)?;
 
@@ -341,7 +335,7 @@ mod tests {
 
     #[test]
     fn test_query_stream_iterator() -> Result<()> {
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let stream = conn.query_stream("SELECT 1 AS a UNION ALL SELECT 2", OutputFormat::CSV)?;
 
         let chunks: Vec<_> = stream.collect::<Result<Vec<_>>>()?;
@@ -351,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_query_stream_error_then_retry_returns_none() -> Result<()> {
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let mut stream =
             conn.query_stream("SELECT * FROM nonexistent_table", OutputFormat::JSONEachRow)?;
 
@@ -362,7 +356,7 @@ mod tests {
 
     #[test]
     fn test_query_stream_syntax_error_fails_at_start() -> Result<()> {
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let result = conn.query_stream("SELECT invalid syntax here", OutputFormat::JSONEachRow);
         assert!(result.is_err());
         Ok(())
@@ -371,7 +365,7 @@ mod tests {
     #[test]
     fn test_session_execute_stream() -> Result<()> {
         let tmp = tempdir();
-        let session = SessionBuilder::new()
+        let mut session = SessionBuilder::new()
             .with_data_path(tmp.path())
             .with_auto_cleanup(true)
             .build()?;

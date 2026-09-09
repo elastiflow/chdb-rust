@@ -14,7 +14,7 @@ const PREVIEW_ROWS: usize = 5;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tmp = std::env::temp_dir().join("chdb-arrow-stream-example");
-    let session = SessionBuilder::new()
+    let mut session = SessionBuilder::new()
         .with_data_path(tmp)
         .with_auto_cleanup(true)
         .build()?;

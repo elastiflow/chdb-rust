@@ -45,7 +45,7 @@ fn print_arrow_chunk(chunk_index: usize, bytes: &[u8]) -> Result<(), Box<dyn std
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tmp = std::env::temp_dir().join("chdb-stream-example");
-    let session = SessionBuilder::new()
+    let mut session = SessionBuilder::new()
         .with_data_path(tmp)
         .with_auto_cleanup(true)
         .build()?;

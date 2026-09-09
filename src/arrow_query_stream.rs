@@ -9,6 +9,7 @@
 use std::ffi::{CStr, CString};
 use std::mem::ManuallyDrop;
 
+use arrow::ffi::FFI_ArrowSchema;
 use arrow::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
 use arrow::record_batch::RecordBatch;
 
@@ -18,7 +19,7 @@ use crate::error::{Error, Result};
 use crate::query_result::QueryResult;
 
 enum ArrowQueryStreamConnection<'a> {
-    Borrowed(&'a Connection),
+    Borrowed(&'a mut Connection),
     Owned(Connection),
 }
 
@@ -33,24 +34,18 @@ enum ArrowQueryStreamConnection<'a> {
 ///
 /// # Thread Safety
 ///
-/// Only owned streams (for example from [`execute_stream_arrow`](crate::execute_stream_arrow))
-/// implement [`Send`]. Streams tied to a borrowed [`Connection`](crate::connection::Connection)
-/// or [`Session`](crate::session::Session) do not, because [`Connection`] is [`Send`] but not
-/// [`Sync`]. Concurrent use from multiple threads is not recommended without external
-/// synchronization.
+/// While a borrowed stream is active, its [`Connection`](crate::connection::Connection)
+/// is exclusively borrowed and cannot be used for other queries. This prevents concurrent
+/// access to a non-[`Sync`] handle. Streams from [`execute_stream_arrow`](crate::execute_stream_arrow)
+/// own their connection outright.
 pub struct ArrowQueryStream<'a> {
     conn: ArrowQueryStreamConnection<'a>,
     inner: *mut bindings::chdb_result,
     finished: bool,
 }
 
-// Safety: Only the owned variant (`ArrowQueryStream<'static>` from `execute_stream_arrow`) is
-// Send. It owns the Connection outright. Borrowed streams hold `&Connection` and must stay on
-// the thread that owns the connection because Connection is Send but !Sync.
-unsafe impl Send for ArrowQueryStream<'static> {}
-
 impl<'a> ArrowQueryStream<'a> {
-    pub(crate) fn start_borrowed(conn: &'a Connection, sql: &str) -> Result<Self> {
+    pub(crate) fn start_borrowed(conn: &'a mut Connection, sql: &str) -> Result<Self> {
         let inner = Self::start_query(conn.handle(), sql)?;
         Ok(Self {
             conn: ArrowQueryStreamConnection::Borrowed(conn),
@@ -101,7 +96,8 @@ impl<'a> ArrowQueryStream<'a> {
 
     /// Fetch the next Arrow record batch from the query stream.
     ///
-    /// Returns `Ok(None)` when the stream is exhausted.
+    /// Returns `Ok(None)` when the stream is exhausted, including empty result sets
+    /// (libchdb currently returns a null-schema stream for zero-row queries).
     pub fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
         if self.finished || self.inner.is_null() {
             return Ok(None);
@@ -124,6 +120,11 @@ impl<'a> ArrowQueryStream<'a> {
                     .into_owned()
             };
             return Err(Error::QueryError(detail));
+        }
+
+        if is_empty_result_stream(&ffi_stream) {
+            self.finished = true;
+            return Ok(None);
         }
 
         let mut reader = match ArrowArrayStreamReader::try_new(ffi_stream) {
@@ -166,6 +167,18 @@ impl<'a> ArrowQueryStream<'a> {
     }
 }
 
+/// libchdb emits a one-batch stream with a null schema for empty result sets;
+/// the stream's `get_schema` callback returns a non-zero code until that is fixed upstream.
+fn is_empty_result_stream(ffi_stream: &FFI_ArrowArrayStream) -> bool {
+    let Some(get_schema) = ffi_stream.get_schema else {
+        return true;
+    };
+    let mut schema = FFI_ArrowSchema::empty();
+    let stream_ptr = (ffi_stream as *const FFI_ArrowArrayStream).cast_mut();
+    let ret_code = unsafe { get_schema(stream_ptr, &mut schema) };
+    ret_code != 0
+}
+
 impl Iterator for ArrowQueryStream<'_> {
     type Item = Result<RecordBatch>;
 
@@ -194,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_arrow_query_stream_row_count_and_chunking() -> Result<()> {
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let mut stream = conn.query_stream_arrow("SELECT number FROM numbers(100_000)")?;
 
         let mut batches = 0usize;
@@ -226,7 +239,7 @@ mod tests {
     #[test]
     fn test_session_execute_stream_arrow() -> Result<()> {
         let tmp = tempdir();
-        let session = SessionBuilder::new()
+        let mut session = SessionBuilder::new()
             .with_data_path(tmp.path())
             .with_auto_cleanup(true)
             .build()?;
@@ -249,7 +262,7 @@ mod tests {
 
     #[test]
     fn test_arrow_query_stream_iterator() -> Result<()> {
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let stream = conn.query_stream_arrow("SELECT number FROM numbers(5)")?;
 
         let batches: Vec<_> = stream.collect::<Result<Vec<_>>>()?;
@@ -259,8 +272,28 @@ mod tests {
     }
 
     #[test]
+    fn test_arrow_query_stream_empty_filter_returns_none() -> Result<()> {
+        let tmp = tempdir();
+        let mut session = SessionBuilder::new()
+            .with_data_path(tmp.path())
+            .with_auto_cleanup(true)
+            .build()?;
+
+        session.execute(
+            "CREATE TABLE items (id UInt64) ENGINE = MergeTree() ORDER BY id",
+            None,
+        )?;
+        session.execute("INSERT INTO items VALUES (1), (2), (3)", None)?;
+
+        let mut stream = session.execute_stream_arrow("SELECT * FROM items WHERE id > 100")?;
+        assert!(stream.next_batch()?.is_none());
+        assert!(stream.next_batch()?.is_none());
+        Ok(())
+    }
+
+    #[test]
     fn test_arrow_query_stream_error_then_retry_returns_none() -> Result<()> {
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let mut stream = conn.query_stream_arrow("SELECT * FROM nonexistent_table")?;
 
         assert!(stream.next_batch().is_err());
@@ -270,7 +303,7 @@ mod tests {
 
     #[test]
     fn test_arrow_query_stream_syntax_error_fails_at_start() -> Result<()> {
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let result = conn.query_stream_arrow("SELECT invalid syntax here");
         assert!(result.is_err());
         Ok(())
@@ -278,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_arrow_query_stream_early_drop() -> Result<()> {
-        let conn = Connection::open_in_memory()?;
+        let mut conn = Connection::open_in_memory()?;
         let mut stream = conn.query_stream_arrow("SELECT number FROM numbers(1_000_000)")?;
         let first = stream.next_batch()?.expect("expected a batch");
         assert!(first.num_rows() > 0);

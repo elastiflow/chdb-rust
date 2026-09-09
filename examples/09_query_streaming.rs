@@ -10,7 +10,7 @@ const EDGE_LINES: usize = 3;
 
 fn main() -> Result<(), chdb_rust::error::Error> {
     let tmp = std::env::temp_dir().join("chdb-stream-example");
-    let session = SessionBuilder::new()
+    let mut session = SessionBuilder::new()
         .with_data_path(tmp)
         .with_auto_cleanup(true)
         .build()?;
