@@ -15,6 +15,10 @@ cargo run --example 05_reading_from_files
 cargo run --example 06_error_handling
 cargo run --example 07_analytics
 cargo run --example 08_arrow_insert
+cargo run --features durable --example 09_durable_object
+cargo run --example 10_query_streaming
+cargo run --example 11_query_streaming_arrow
+cargo run --example 12_arrow_query_stream
 ```
 
 ## Example Files
@@ -27,6 +31,10 @@ cargo run --example 08_arrow_insert
 6. **06_error_handling.rs** - Proper error handling patterns
 7. **07_analytics.rs** - Complete analytics example with event tracking and aggregation
 8. **08_arrow_insert.rs** - Fast bulk insert via Arrow C Data Interface (`insert_record_batch`)
+9. **09_durable_object.rs** - Durable objects: checkpoint + WAL storage you own (requires `--features durable`)
+10. **10_query_streaming.rs** - Streaming large query results in chunks without materializing the full output
+11. **11_query_streaming_arrow.rs** - Streaming large query results in chunks, decoding Arrow IPC bytes into human-readable tables (requires `--features arrow`)
+12. **12_arrow_query_stream.rs** - Streaming large query results as Arrow `RecordBatch` values via the C Data Interface (requires `--features arrow`)
 
 ## Prerequisites
 
@@ -39,4 +47,3 @@ To build all examples without running them:
 ```bash
 cargo build --examples
 ```
-
