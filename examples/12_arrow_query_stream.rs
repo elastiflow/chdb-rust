@@ -1,11 +1,11 @@
 //! Example: streaming Arrow record batches via the C Data Interface
 //!
-//! Unlike example 10, which streams Arrow IPC bytes through [`QueryStream`],
+//! Unlike example 11, which streams Arrow IPC bytes through [`QueryStream`],
 //! this example uses [`Session::execute_stream_arrow`] to pull typed
 //! [`arrow::record_batch::RecordBatch`] values directly from chDB with no
 //! IPC serialization.
 //!
-//! Run with: cargo run --example 11_arrow_query_stream
+//! Run with: cargo run --example 12_arrow_query_stream
 
 use arrow::util::pretty::pretty_format_batches;
 use chdb_rust::session::SessionBuilder;

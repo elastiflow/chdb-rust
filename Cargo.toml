@@ -53,14 +53,18 @@ name = "08_arrow_insert"
 required-features = ["arrow"]
 
 [[example]]
-name = "09_query_streaming"
+name = "09_durable_object"
+required-features = ["durable"]
 
 [[example]]
-name = "10_query_streaming_arrow"
+name = "10_query_streaming"
+
+[[example]]
+name = "11_query_streaming_arrow"
 required-features = ["arrow"]
 
 [[example]]
-name = "11_arrow_query_stream"
+name = "12_arrow_query_stream"
 required-features = ["arrow"]
 
 [[test]]
@@ -97,10 +101,6 @@ required-features = ["durable"]
 [[test]]
 name = "durable_s3"
 required-features = ["durable-s3"]
-
-[[example]]
-name = "12_durable_object"
-required-features = ["durable"]
 
 [package.metadata.chdb]
 # The chdb-core release this crate builds against. This is a chdb-core release

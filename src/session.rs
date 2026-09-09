@@ -408,7 +408,10 @@ impl Session {
         query_args: Option<&[Arg]>,
     ) -> Result<QueryStream<'a>> {
         let fmt = extract_output_format(query_args, self.default_format);
-        self.conn.query_stream(query, fmt)
+        self.conn
+            .as_mut()
+            .expect("a session holds its connection until it is dropped")
+            .query_stream(query, fmt)
     }
 
     /// Access the session's [`Connection`] for Arrow registration and low-level queries.
@@ -503,7 +506,10 @@ impl Session {
         &'a mut self,
         query: &str,
     ) -> Result<crate::arrow_query_stream::ArrowQueryStream<'a>> {
-        self.conn.query_stream_arrow(query)
+        self.conn
+            .as_mut()
+            .expect("a session holds its connection until it is dropped")
+            .query_stream_arrow(query)
     }
 }
 
