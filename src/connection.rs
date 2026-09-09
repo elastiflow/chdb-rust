@@ -274,7 +274,10 @@ impl Connection {
     /// Execute a query with ClickHouse `{name:Type}` parameter binding and stream text chunks.
     ///
     /// Like [`Self::query_stream`], but SQL placeholders are bound from `params`
-    /// before streaming begins.
+    /// before streaming begins. The connection is exclusively borrowed for the
+    /// stream's lifetime. Syntax errors fail when the stream is created. A
+    /// missing placeholder binding is reported on the first
+    /// [`QueryStream::next_chunk`], not at start.
     ///
     /// # Examples
     ///
@@ -293,6 +296,12 @@ impl Connection {
     /// }
     /// # Ok::<(), chdb_rust::error::Error>(())
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The query syntax is invalid
+    /// - The query cannot be started
     pub fn query_stream_with_params<'a, K, V, I>(
         &'a mut self,
         sql: &str,
@@ -337,9 +346,9 @@ impl Connection {
 
     /// Execute a query with ClickHouse `{name:Type}` parameter binding.
     ///
-    /// Parameter values are encoded and bound server-side; they are never
-    /// interpolated into the SQL text. Names in `params` need not match placeholder
-    /// order in the query.
+    /// Parameter values are encoded here and bound in the chDB library; they
+    /// are never interpolated into the SQL text. Names in `params` need not match placeholder
+    /// order in the query. An empty `params` list is a plain query.
     ///
     /// # Examples
     ///
@@ -355,6 +364,14 @@ impl Connection {
     /// )?;
     /// # Ok::<(), chdb_rust::error::Error>(())
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The query syntax is invalid
+    /// - A `{name:Type}` placeholder has no matching param
+    /// - A value cannot be parsed as the type declared in the placeholder
+    /// - The query execution fails for any other reason
     pub fn query_with_params<K, V, I>(
         &self,
         sql: &str,
@@ -403,7 +420,10 @@ impl Connection {
     /// Execute a query with ClickHouse `{name:Type}` parameter binding and stream Arrow batches.
     ///
     /// Like [`Self::query_stream_arrow`], but SQL placeholders are bound from `params`
-    /// server-side before streaming begins.
+    /// in the chDB library before streaming begins. The connection is exclusively borrowed
+    /// for the stream's lifetime. Syntax errors fail when the stream is created.
+    /// A missing placeholder binding is reported on the first
+    /// [`ArrowQueryStream::next_batch`], not at start.
     ///
     /// # Examples
     ///
@@ -420,6 +440,12 @@ impl Connection {
     /// }
     /// # Ok::<(), chdb_rust::error::Error>(())
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The query syntax is invalid
+    /// - The query cannot be started
     pub fn query_stream_arrow_with_params<'a, K, V, I>(
         &'a mut self,
         sql: &str,

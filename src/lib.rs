@@ -24,6 +24,7 @@
 //!
 //! - **Stateless queries**: Execute one-off queries without persistent storage
 //! - **Stateful sessions**: Create databases and tables with persistent storage
+//! - **Parameterized queries**: Bind ClickHouse `{name:Type}` placeholders with [`execute_with_params`] and [`QueryParam`]. Values are bound in the chDB library and never spliced into the SQL text
 //! - **Multiple output formats**: JSON, CSV, TabSeparated, and more
 //! - **Query result streaming**: Read large result sets in chunks with constant memory
 //! - **Arrow bulk insert** (feature `arrow`, on by default): [`insert_record_batch`](arrow_insert::insert_record_batch) via `ArrowStream('name')`. Use [`chdb_rust::arrow`](arrow) types so your Arrow version matches the crate.
@@ -176,8 +177,10 @@ pub fn active_engine_refs() -> usize {
 
 /// Execute a one-off query with ClickHouse `{name:Type}` parameter binding.
 ///
-/// Counterpart to [`execute`]. Parameter values are bound server-side and never
-/// interpolated into the SQL text.
+/// Counterpart to [`execute`]. Parameter values are bound in the chDB library
+/// and never interpolated into the SQL text. Names in `params` need not match placeholder
+/// order. An empty `params` list is a plain query: placeholders then fail with a
+/// substitution error.
 ///
 /// # Examples
 ///
@@ -193,6 +196,18 @@ pub fn active_engine_refs() -> usize {
 /// )?;
 /// # Ok::<(), chdb_rust::error::Error>(())
 /// ```
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The query syntax is invalid
+/// - A `{name:Type}` placeholder has no matching param
+/// - A value cannot be parsed as the type declared in the placeholder
+/// - The connection cannot be established
+/// - The query execution fails
+/// - A connection is already open on a data path, since the in-memory
+///   connection this opens would be a second one. See
+///   [`Error::PathConflict`](error::Error::PathConflict).
 pub fn execute_with_params<K, V, I>(
     query: &str,
     query_args: Option<&[Arg]>,
@@ -258,7 +273,9 @@ pub fn execute_stream(query: &str, query_args: Option<&[Arg]>) -> Result<QuerySt
 
 /// Execute a one-off query with ClickHouse `{name:Type}` parameter binding and stream text chunks.
 ///
-/// Counterpart to [`execute_stream`].
+/// Counterpart to [`execute_stream`]. Syntax errors fail when the stream is
+/// created. A missing placeholder binding is reported on the first
+/// [`QueryStream::next_chunk`], not at start.
 ///
 /// # Examples
 ///
@@ -277,6 +294,15 @@ pub fn execute_stream(query: &str, query_args: Option<&[Arg]>) -> Result<QuerySt
 /// }
 /// # Ok::<(), chdb_rust::error::Error>(())
 /// ```
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The query syntax is invalid
+/// - The connection cannot be established
+/// - The query cannot be started
+/// - A connection is already open on a data path. See
+///   [`Error::PathConflict`](error::Error::PathConflict).
 pub fn execute_stream_with_params<K, V, I>(
     query: &str,
     query_args: Option<&[Arg]>,
@@ -318,7 +344,9 @@ pub fn execute_stream_arrow(query: &str) -> Result<ArrowQueryStream<'static>> {
 
 /// Execute a one-off query with ClickHouse `{name:Type}` parameter binding and stream Arrow batches.
 ///
-/// Counterpart to [`execute_stream_arrow`].
+/// Counterpart to [`execute_stream_arrow`]. Syntax errors fail when the stream is
+/// created. A missing placeholder binding is reported on the first
+/// [`ArrowQueryStream::next_batch`], not at start.
 ///
 /// # Examples
 ///
@@ -332,6 +360,15 @@ pub fn execute_stream_arrow(query: &str) -> Result<ArrowQueryStream<'static>> {
 /// }
 /// # Ok::<(), chdb_rust::error::Error>(())
 /// ```
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The query syntax is invalid
+/// - The connection cannot be established
+/// - The query cannot be started
+/// - A connection is already open on a data path. See
+///   [`Error::PathConflict`](error::Error::PathConflict).
 #[cfg(feature = "arrow")]
 pub fn execute_stream_arrow_with_params<K, V, I>(
     query: &str,

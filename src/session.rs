@@ -419,8 +419,41 @@ impl Session {
 
     /// Execute a query with ClickHouse `{name:Type}` parameter binding and stream the result in chunks.
     ///
-    /// Output format may be supplied via `query_args`; other [`Arg`] variants are
-    /// ignored here, matching [`Self::execute_stream`].
+    /// Like [`Self::execute_stream`], but SQL placeholders are bound from `params`
+    /// before streaming begins. The session is exclusively borrowed for the
+    /// stream's lifetime. Output format may be supplied via `query_args`; other
+    /// [`Arg`] variants are ignored here, matching [`Self::execute_stream`].
+    /// Syntax errors fail when the stream is created. A missing placeholder
+    /// binding is reported on the first [`QueryStream::next_chunk`], not at start.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use chdb_rust::arg::Arg;
+    /// use chdb_rust::format::OutputFormat;
+    /// use chdb_rust::session::SessionBuilder;
+    ///
+    /// let mut session = SessionBuilder::new()
+    ///     .with_data_path("/tmp/mydb")
+    ///     .with_auto_cleanup(true)
+    ///     .build()?;
+    ///
+    /// let mut stream = session.execute_stream_with_params(
+    ///     "SELECT {x:UInt64} AS v",
+    ///     Some(&[Arg::OutputFormat(OutputFormat::CSV)]),
+    ///     [("x", 11_u64)],
+    /// )?;
+    /// while let Some(chunk) = stream.next_chunk()? {
+    ///     print!("{}", chunk.data_utf8_lossy());
+    /// }
+    /// # Ok::<(), chdb_rust::error::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The query syntax is invalid
+    /// - The query cannot be started
     pub fn execute_stream_with_params<'a, K, V, I>(
         &'a mut self,
         query: &str,
@@ -441,8 +474,38 @@ impl Session {
 
     /// Execute a query with ClickHouse `{name:Type}` parameter binding.
     ///
-    /// Output format may be supplied via `query_args`; other [`Arg`] variants are
-    /// ignored here, matching [`Self::execute`].
+    /// Like [`Self::execute`], but SQL placeholders are bound from `params`
+    /// in the chDB library and never interpolated into the SQL text. Output format may
+    /// be supplied via `query_args`; other [`Arg`] variants are ignored here,
+    /// matching [`Self::execute`].
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use chdb_rust::arg::Arg;
+    /// use chdb_rust::format::OutputFormat;
+    /// use chdb_rust::session::SessionBuilder;
+    ///
+    /// let session = SessionBuilder::new()
+    ///     .with_data_path("/tmp/mydb")
+    ///     .with_auto_cleanup(true)
+    ///     .build()?;
+    ///
+    /// let result = session.execute_with_params(
+    ///     "SELECT {x:UInt64} AS v",
+    ///     Some(&[Arg::OutputFormat(OutputFormat::CSV)]),
+    ///     [("x", 7_u64)],
+    /// )?;
+    /// # Ok::<(), chdb_rust::error::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The query syntax is invalid
+    /// - A `{name:Type}` placeholder has no matching param
+    /// - A value cannot be parsed as the type declared in the placeholder
+    /// - The query execution fails for any other reason
     pub fn execute_with_params<K, V, I>(
         &self,
         query: &str,
@@ -560,8 +623,35 @@ impl Session {
     ///
     /// Session-level counterpart of
     /// [`Connection::query_stream_arrow_with_params`](crate::connection::Connection::query_stream_arrow_with_params).
+    /// The session is exclusively borrowed for the stream's lifetime.
     ///
     /// Available when the crate is built with the `arrow` feature.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use chdb_rust::session::SessionBuilder;
+    ///
+    /// let mut session = SessionBuilder::new()
+    ///     .with_data_path("/tmp/mydb")
+    ///     .with_auto_cleanup(true)
+    ///     .build()?;
+    ///
+    /// let mut stream = session.execute_stream_arrow_with_params(
+    ///     "SELECT {x:UInt64} AS v",
+    ///     [("x", 11_u64)],
+    /// )?;
+    /// while let Some(batch) = stream.next_batch()? {
+    ///     println!("rows: {}", batch.num_rows());
+    /// }
+    /// # Ok::<(), chdb_rust::error::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The query syntax is invalid
+    /// - The query cannot be started
     #[cfg(feature = "arrow")]
     pub fn execute_stream_arrow_with_params<'a, K, V, I>(
         &'a mut self,

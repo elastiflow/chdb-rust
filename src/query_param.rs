@@ -1,9 +1,16 @@
 //! ClickHouse query parameter values for `{name:Type}` placeholders.
 //!
-//! Values are encoded as strings for the libchdb C API.
+//! Values are encoded as strings for the libchdb C API. The SQL still names the
+//! ClickHouse type; this crate does not interpolate values into the query text.
+//! After chDB receives the encoded strings, it parses them and substitutes them
+//! during planning.
 //!
-//! After the encoded values have been sent to chDB, they are parsed by the chDB core library and
-//! substituted in the query during planning.
+//! ```no_run
+//! use chdb_rust::execute_with_params;
+//!
+//! let result = execute_with_params("SELECT {x:UInt64} AS v", None, [("x", 7_u64)])?;
+//! # Ok::<(), chdb_rust::error::Error>(())
+//! ```
 
 use std::borrow::Cow;
 use std::ffi::{c_char, CString};
@@ -11,6 +18,11 @@ use std::ffi::{c_char, CString};
 use crate::error::Result;
 
 /// Builder for mixed-type parameter maps.
+///
+/// An iterator of `(name, value)` pairs is enough when every value converts to
+/// the same [`QueryParam`] type. Use this builder when the types differ, or when
+/// you want to assemble the map incrementally. Binding the same name twice keeps
+/// the later value.
 ///
 /// # Examples
 ///
@@ -36,10 +48,19 @@ pub struct QueryParams {
 }
 
 impl QueryParams {
+    /// An empty parameter map.
+    ///
+    /// Passing this to a query that still has `{name:Type}` placeholders fails
+    /// with a substitution error. A query with no placeholders runs as a plain
+    /// query.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Append a named value and return the map for further binds.
+    ///
+    /// `name` is the identifier inside `{name:Type}`. A second bind of the same
+    /// name replaces the earlier value at query time (last write wins).
     pub fn bind(mut self, name: impl AsRef<str>, value: impl Into<QueryParam>) -> Self {
         self.pairs.push((name.as_ref().to_owned(), value.into()));
         self
@@ -72,14 +93,20 @@ impl<'a> IntoIterator for &'a QueryParams {
 /// A value bound to a `{name:Type}` placeholder in a parameterized query.
 ///
 /// Use [`From`] conversions for scalars, strings, options, and arrays. For pre-formatted
-/// ClickHouse literals (tuples, etc.), use [`Self::raw`].
+/// ClickHouse literals (tuples, etc.), use [`Self::raw`]. The type in the SQL
+/// placeholder is what the engine parses; these variants only choose the string
+/// encoding sent over the C API.
 #[derive(Debug, Clone, PartialEq)]
 pub enum QueryParam {
     /// SQL NULL for `Nullable(...)` placeholders (`\N`).
     Null,
+    /// ClickHouse `Bool`, encoded as `true` or `false`.
     Bool(bool),
+    /// Signed 64-bit integer. Wider integers should go through [`Self::raw`].
     Int64(i64),
+    /// Unsigned 64-bit integer.
     UInt64(u64),
+    /// 64-bit floating point.
     Float64(f64),
     /// Raw text for `String`, `Date`, `Identifier`, and similar placeholders.
     Text(String),
@@ -91,6 +118,9 @@ pub enum QueryParam {
 
 impl QueryParam {
     /// Pass a pre-formatted ClickHouse parameter literal through unchanged.
+    ///
+    /// The string is sent as-is. It must already be valid for the placeholder
+    /// type (`(7,'x')` for a tuple, `[1, 2, 3]` for an array).
     pub fn raw(value: impl Into<String>) -> Self {
         Self::Raw(value.into())
     }
