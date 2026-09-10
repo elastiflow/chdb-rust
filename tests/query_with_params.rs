@@ -40,6 +40,30 @@ mod common {
     }
 
     #[test]
+    fn string_param_preserves_literal_backslash_sequences() -> Result<()> {
+        let conn = Connection::open_in_memory()?;
+        let result = conn.query_with_params(
+            r"SELECT {s:String} = 'C:\\temp' AS v",
+            OutputFormat::CSV,
+            [("s", r"C:\temp")],
+        )?;
+        assert_eq!(result.data_utf8_lossy(), "1\n");
+        Ok(())
+    }
+
+    #[test]
+    fn string_param_preserves_literal_tab() -> Result<()> {
+        let conn = Connection::open_in_memory()?;
+        let result = conn.query_with_params(
+            r"SELECT {s:String} = 'a\tb' AS v",
+            OutputFormat::CSV,
+            [("s", "a\tb")],
+        )?;
+        assert_eq!(result.data_utf8_lossy(), "1\n");
+        Ok(())
+    }
+
+    #[test]
     fn date_param_arithmetic_returns_expected_value() -> Result<()> {
         let conn = Connection::open_in_memory()?;
         let result = conn.query_with_params(

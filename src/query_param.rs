@@ -137,9 +137,45 @@ impl QueryParam {
             Self::Int64(value) => Cow::Owned(value.to_string()),
             Self::UInt64(value) => Cow::Owned(value.to_string()),
             Self::Float64(value) => Cow::Owned(value.to_string()),
-            Self::Text(value) | Self::Raw(value) => Cow::Borrowed(value),
+            Self::Text(value) => Self::encode_text(value),
+            Self::Raw(value) => Cow::Borrowed(value),
             Self::Array(values) => Cow::Owned(Self::encode_array(values)?),
         })
+    }
+
+    /// Escape `\`, tab, and newline so `deserializeTextEscaped` reconstructs `value`.
+    fn encode_text(value: &str) -> Cow<'_, str> {
+        let mut encoded = None;
+        let mut last = 0;
+
+        for (i, ch) in value.char_indices() {
+            let esc = match ch {
+                '\\' => r"\\",
+                '\t' => r"\t",
+                '\n' => r"\n",
+                _ => continue,
+            };
+            let buf = encoded.get_or_insert_with(|| String::with_capacity(value.len()));
+            buf.push_str(&value[last..i]);
+            buf.push_str(esc);
+            last = i + ch.len_utf8();
+        }
+
+        match encoded {
+            None => Cow::Borrowed(value),
+            Some(mut buf) => {
+                buf.push_str(&value[last..]);
+                Cow::Owned(buf)
+            }
+        }
+    }
+
+    fn encode_array(values: &[QueryParam]) -> Result<String> {
+        let mut parts = Vec::with_capacity(values.len());
+        for value in values {
+            parts.push(value.encode_nested()?.into_owned());
+        }
+        Ok(format!("[{}]", parts.join(", ")))
     }
 
     /// Encode this value as an element inside an array/tuple/map literal.
@@ -157,22 +193,18 @@ impl QueryParam {
         })
     }
 
-    fn encode_array(values: &[QueryParam]) -> Result<String> {
-        let mut parts = Vec::with_capacity(values.len());
-        for value in values {
-            parts.push(value.encode_nested()?.into_owned());
-        }
-        Ok(format!("[{}]", parts.join(", ")))
-    }
-
+    /// Quote `value` as an array or tuple element, escaping `\`, tab, newline, and `'`.
     fn quote_nested_string(value: &str) -> String {
         let mut encoded = String::with_capacity(value.len() + 2);
         encoded.push('\'');
         for ch in value.chars() {
-            if ch == '\'' || ch == '\\' {
-                encoded.push('\\');
+            match ch {
+                '\\' => encoded.push_str(r"\\"),
+                '\t' => encoded.push_str(r"\t"),
+                '\n' => encoded.push_str(r"\n"),
+                '\'' => encoded.push_str(r"\'"),
+                other => encoded.push(other),
             }
-            encoded.push(ch);
         }
         encoded.push('\'');
         encoded
@@ -374,7 +406,7 @@ mod tests {
         assert_eq!(QueryParam::Text(String::new()).encode()?, "");
         assert_eq!(QueryParam::Text("hello".into()).encode()?, "hello");
         assert_eq!(QueryParam::Text("it's".into()).encode()?, "it's");
-        assert_eq!(QueryParam::Text(r"a\b".into()).encode()?, r"a\b");
+        assert_eq!(QueryParam::Text(r"a\b".into()).encode()?, r"a\\b");
         assert_eq!(QueryParam::raw("").encode()?, "");
         assert_eq!(QueryParam::raw("(7,'x')").encode()?, "(7,'x')");
         assert_eq!(QueryParam::raw("[1, 2, 3]").encode()?, "[1, 2, 3]");
@@ -383,6 +415,30 @@ mod tests {
             QueryParam::Array(vec![QueryParam::Int64(1), QueryParam::Int64(2)]).encode()?,
             "[1, 2]"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn encode_text_escapes_sequences_so_chdb_sees_a_literal() -> Result<()> {
+        assert_eq!(QueryParam::Text(r"C:\temp".into()).encode()?, r"C:\\temp");
+        assert_eq!(QueryParam::Text(r"\".into()).encode()?, r"\\");
+        assert_eq!(QueryParam::Text(r"\\".into()).encode()?, r"\\\\");
+        assert_eq!(QueryParam::Text("a\tb".into()).encode()?, r"a\tb");
+        assert_eq!(QueryParam::Text("a\nb".into()).encode()?, r"a\nb");
+        assert_eq!(QueryParam::Text("it's".into()).encode()?, "it's");
+        assert_eq!(QueryParam::Text("a\rb".into()).encode()?, "a\rb");
+        assert_eq!(QueryParam::Text("a\u{08}b".into()).encode()?, "a\u{08}b");
+        assert_eq!(QueryParam::Text("a\u{0c}b".into()).encode()?, "a\u{0c}b");
+        assert_eq!(QueryParam::Text("a\0b".into()).encode()?, "a\0b");
+        assert_eq!(QueryParam::Text("hello".into()).encode()?, "hello");
+        Ok(())
+    }
+
+    #[test]
+    fn encode_raw_passes_escape_sequences_through_unchanged() -> Result<()> {
+        assert_eq!(QueryParam::raw(r"C:\temp").encode()?, r"C:\temp");
+        assert_eq!(QueryParam::raw("a\tb").encode()?, "a\tb");
+        assert_eq!(QueryParam::raw(r"it\'s").encode()?, r"it\'s");
         Ok(())
     }
 
@@ -448,6 +504,18 @@ mod tests {
         assert_eq!(
             QueryParam::Array(vec![QueryParam::Text(r"'\".into())]).encode()?,
             r"['\'\\']"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Text(r"C:\temp".into())]).encode()?,
+            r"['C:\\temp']"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Text("a\tb".into())]).encode()?,
+            r"['a\tb']"
+        );
+        assert_eq!(
+            QueryParam::Array(vec![QueryParam::Text("a\nb".into())]).encode()?,
+            r"['a\nb']"
         );
         assert_eq!(
             QueryParam::Array(vec![
