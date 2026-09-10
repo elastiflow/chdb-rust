@@ -7,12 +7,13 @@ This document provides simple and easy-to-follow examples for using chdb-rust, a
 1. [Basic Setup](#basic-setup)
 2. [Stateless Queries](#stateless-queries)
 3. [Stateful Sessions](#stateful-sessions)
-4. [Working with Query Results](#working-with-query-results)
-5. [Output Formats](#output-formats)
-6. [Reading from Files](#reading-from-files)
-7. [Error Handling](#error-handling)
-8. [Fast Bulk Inserts (Arrow)](#fast-bulk-inserts-arrow)
-9. [Durable Objects](#durable-objects)
+4. [Parameterized Queries](#parameterized-queries)
+5. [Working with Query Results](#working-with-query-results)
+6. [Output Formats](#output-formats)
+7. [Reading from Files](#reading-from-files)
+8. [Error Handling](#error-handling)
+9. [Fast Bulk Inserts (Arrow)](#fast-bulk-inserts-arrow)
+10. [Durable Objects](#durable-objects)
 
 ## Basic Setup
 
@@ -98,6 +99,44 @@ fn main() -> Result<(), chdb_rust::error::Error> {
     Ok(())
 }
 ```
+
+## Parameterized Queries
+
+ClickHouse `{name:Type}` placeholders bind values in the chDB library. The SQL names
+the type; the Rust value is encoded and substituted during planning. Names
+match placeholders by name, not by order.
+
+```rust
+use chdb_rust::arg::Arg;
+use chdb_rust::execute_with_params;
+use chdb_rust::format::OutputFormat;
+use chdb_rust::query_param::QueryParams;
+
+fn main() -> Result<(), chdb_rust::error::Error> {
+    let result = execute_with_params(
+        "SELECT {x:UInt64} + {y:UInt64} AS total",
+        Some(&[Arg::OutputFormat(OutputFormat::CSV)]),
+        [("y", 5_u64), ("x", 7_u64)],
+    )?;
+    println!("{}", result.data_utf8_lossy());
+
+    let params = QueryParams::new()
+        .bind("sku", "SKU-101")
+        .bind("min_qty", 10_u64);
+    let result = execute_with_params(
+        "SELECT {sku:String} AS sku, {min_qty:UInt64} AS min_qty",
+        Some(&[Arg::OutputFormat(OutputFormat::CSV)]),
+        params,
+    )?;
+    println!("{}", result.data_utf8_lossy());
+
+    Ok(())
+}
+```
+
+`Session::execute_with_params` is the same binding on a persistent session.
+[`examples/13_query_with_params.rs`](../examples/13_query_with_params.rs) uses it
+for an inventory lookup with mixed-type filters.
 
 ## Working with Query Results
 
